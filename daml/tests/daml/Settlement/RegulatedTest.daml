@@ -1,0 +1,319 @@
+module Settlement.RegulatedTest where
+
+import DA.Time (RelTime, addRelTime, days)
+import Daml.Script
+import Settlement.Regulated
+
+data TestParties = TestParties
+  with
+    testIssuer : Party
+    testInvestor : Party
+    testVerifier : Party
+    testCustodian : Party
+    testAuditor : Party
+  deriving (Eq, Show)
+
+data ReadyFixture = ReadyFixture
+  with
+    fixtureParties : TestParties
+    fixtureTerms : SettlementTerms
+    fixtureAttestationCid : ContractId EligibilityAttestation
+    fixtureReadyCid : ContractId ReadyToSettle
+  deriving (Eq, Show)
+
+allocateTestParties : Text -> Script TestParties
+allocateTestParties prefix = do
+  testIssuer <- allocatePartyByHint (PartyIdHint (prefix <> "-issuer"))
+  testInvestor <- allocatePartyByHint (PartyIdHint (prefix <> "-investor"))
+  testVerifier <- allocatePartyByHint (PartyIdHint (prefix <> "-verifier"))
+  testCustodian <- allocatePartyByHint (PartyIdHint (prefix <> "-custodian"))
+  testAuditor <- allocatePartyByHint (PartyIdHint (prefix <> "-auditor"))
+  pure TestParties with ..
+
+termsFor : TestParties -> SettlementTerms
+termsFor parties = SettlementTerms with
+  issuer = parties.testIssuer
+  investor = parties.testInvestor
+  verifier = parties.testVerifier
+  custodian = parties.testCustodian
+  auditor = parties.testAuditor
+  assetId = "PC-NOTE-2026-09"
+  assetClass = "PRIVATE-CREDIT"
+  units = 1000
+  paymentAmount = 250.0
+  paymentInstrumentId = "CC"
+
+createAttestation
+  : TestParties
+  -> Party
+  -> Time
+  -> Script (ContractId EligibilityAttestation)
+createAttestation parties investor expiresAt =
+  submit parties.testVerifier do
+    createCmd EligibilityAttestation with
+      verifier = parties.testVerifier
+      investor
+      assetClass = "PRIVATE-CREDIT"
+      expiresAt
+
+createOffer
+  : TestParties
+  -> SettlementTerms
+  -> Time
+  -> Time
+  -> Script (ContractId AssetOffer)
+createOffer parties terms offerExpiresAt settleBefore =
+  submit parties.testIssuer do
+    createCmd AssetOffer with ..
+
+acceptOffer
+  : Party
+  -> ContractId AssetOffer
+  -> ContractId EligibilityAttestation
+  -> Script (ContractId CompliancePending)
+acceptOffer investor offerCid eligibilityAttestationCid =
+  submit investor do
+    exerciseCmd offerCid AcceptOffer with ..
+
+approveCompliance
+  : Party
+  -> ContractId CompliancePending
+  -> Script (ContractId PurchaseAgreement)
+approveCompliance verifier compliancePendingCid =
+  submit verifier do
+    exerciseCmd compliancePendingCid ApproveCompliance
+
+setupReadyFixture : Text -> RelTime -> RelTime -> Script ReadyFixture
+setupReadyFixture prefix eligibilityLifetime settlementLifetime = do
+  fixtureParties <- allocateTestParties prefix
+  let fixtureTerms = termsFor fixtureParties
+  now <- getTime
+  let attestationExpiresAt = now `addRelTime` eligibilityLifetime
+  let offerExpiresAt = now `addRelTime` days 1
+  let settleBefore = now `addRelTime` settlementLifetime
+
+  fixtureAttestationCid <-
+    createAttestation fixtureParties fixtureParties.testInvestor attestationExpiresAt
+  offerCid <- createOffer fixtureParties fixtureTerms offerExpiresAt settleBefore
+  compliancePendingCid <-
+    acceptOffer fixtureParties.testInvestor offerCid fixtureAttestationCid
+  agreementCid <-
+    approveCompliance fixtureParties.testVerifier compliancePendingCid
+
+  paymentCid <- submit fixtureParties.testInvestor do
+    exerciseCmd agreementCid PreparePayment with
+      paymentRef = "PAYMENT-EVIDENCE-001"
+
+  fixtureReadyCid <- submit fixtureParties.testCustodian do
+    exerciseCmd paymentCid ConfirmDelivery with
+      deliveryRef = "DELIVERY-EVIDENCE-001"
+
+  pure ReadyFixture with ..
+
+finalizeFixture : ReadyFixture -> Script (ContractId SettlementReceipt)
+finalizeFixture fixture =
+  submit (actAs
+    [ fixture.fixtureParties.testIssuer
+    , fixture.fixtureParties.testVerifier
+    ]) do
+    exerciseCmd fixture.fixtureReadyCid FinalizeSettlement
+
+setupRegulatedSettlementDemo : Script (ContractId SettlementReceipt)
+setupRegulatedSettlementDemo = do
+  fixture <- setupReadyFixture "demo" (days 30) (days 7)
+  finalizeFixture fixture
+
+testRegulatedSettlementHappyPath : Script ()
+testRegulatedSettlementHappyPath = script do
+  fixture <- setupReadyFixture "happy" (days 30) (days 7)
+  receiptCid <- finalizeFixture fixture
+
+  Some receipt <-
+    queryContractId fixture.fixtureParties.testAuditor receiptCid
+  assertMsg "Receipt retains payment evidence"
+    (receipt.paymentRef == "PAYMENT-EVIDENCE-001")
+  assertMsg "Receipt retains delivery evidence"
+    (receipt.deliveryRef == "DELIVERY-EVIDENCE-001")
+
+  None <-
+    queryContractId fixture.fixtureParties.testIssuer fixture.fixtureReadyCid
+  pure ()
+
+testWrongInvestorCannotUseAttestation : Script ()
+testWrongInvestorCannotUseAttestation = script do
+  parties <- allocateTestParties "wrong-investor"
+  otherInvestor <- allocatePartyByHint (PartyIdHint "wrong-investor-other")
+  now <- getTime
+  let terms = (termsFor parties) with investor = otherInvestor
+  let attestationExpiresAt = now `addRelTime` days 30
+  let offerExpiresAt = now `addRelTime` days 1
+  let settleBefore = now `addRelTime` days 7
+
+  attestationCid <-
+    createAttestation parties parties.testInvestor attestationExpiresAt
+  offerCid <- createOffer parties terms offerExpiresAt settleBefore
+
+  submitMustFail otherInvestor do
+    exerciseCmd offerCid AcceptOffer with
+      eligibilityAttestationCid = attestationCid
+
+  Some _ <- queryContractId otherInvestor offerCid
+  pure ()
+
+testExpiredAttestationCannotAccept : Script ()
+testExpiredAttestationCannotAccept = script do
+  parties <- allocateTestParties "expired-accept"
+  now <- getTime
+  let terms = termsFor parties
+  let offerExpiresAt = now `addRelTime` days 1
+  let settleBefore = now `addRelTime` days 7
+
+  attestationCid <- createAttestation parties parties.testInvestor now
+  offerCid <- createOffer parties terms offerExpiresAt settleBefore
+
+  submitMustFail parties.testInvestor do
+    exerciseCmd offerCid AcceptOffer with
+      eligibilityAttestationCid = attestationCid
+
+  Some _ <- queryContractId parties.testInvestor offerCid
+  pure ()
+
+testWithdrawnAttestationBlocksSettlement : Script ()
+testWithdrawnAttestationBlocksSettlement = script do
+  fixture <- setupReadyFixture "withdrawn" (days 30) (days 7)
+
+  submit fixture.fixtureParties.testVerifier do
+    exerciseCmd fixture.fixtureAttestationCid WithdrawAttestation
+
+  submitMustFail (actAs
+    [ fixture.fixtureParties.testIssuer
+    , fixture.fixtureParties.testVerifier
+    ]) do
+    exerciseCmd fixture.fixtureReadyCid FinalizeSettlement
+
+  Some _ <-
+    queryContractId fixture.fixtureParties.testIssuer fixture.fixtureReadyCid
+  pure ()
+
+testExpiredAttestationBlocksSettlement : Script ()
+testExpiredAttestationBlocksSettlement = script do
+  fixture <- setupReadyFixture "expired-settle" (days 2) (days 7)
+  passTime (days 3)
+
+  submitMustFail (actAs
+    [ fixture.fixtureParties.testIssuer
+    , fixture.fixtureParties.testVerifier
+    ]) do
+    exerciseCmd fixture.fixtureReadyCid FinalizeSettlement
+
+  Some _ <-
+    queryContractId fixture.fixtureParties.testIssuer fixture.fixtureReadyCid
+  pure ()
+
+testSettlementDeadlineBlocksSettlement : Script ()
+testSettlementDeadlineBlocksSettlement = script do
+  fixture <- setupReadyFixture "deadline" (days 30) (days 2)
+  passTime (days 3)
+
+  submitMustFail (actAs
+    [ fixture.fixtureParties.testIssuer
+    , fixture.fixtureParties.testVerifier
+    ]) do
+    exerciseCmd fixture.fixtureReadyCid FinalizeSettlement
+
+  Some _ <-
+    queryContractId fixture.fixtureParties.testIssuer fixture.fixtureReadyCid
+  pure ()
+
+testNonIssuerCannotFinalizeSettlement : Script ()
+testNonIssuerCannotFinalizeSettlement = script do
+  fixture <- setupReadyFixture "wrong-settler" (days 30) (days 7)
+
+  submitMustFail fixture.fixtureParties.testInvestor do
+    exerciseCmd fixture.fixtureReadyCid FinalizeSettlement
+
+  Some _ <-
+    queryContractId fixture.fixtureParties.testIssuer fixture.fixtureReadyCid
+  pure ()
+
+testPaymentCanOnlyBePreparedOnce : Script ()
+testPaymentCanOnlyBePreparedOnce = script do
+  parties <- allocateTestParties "single-payment"
+  now <- getTime
+  let terms = termsFor parties
+  let attestationExpiresAt = now `addRelTime` days 30
+  let offerExpiresAt = now `addRelTime` days 1
+  let settleBefore = now `addRelTime` days 7
+
+  attestationCid <-
+    createAttestation parties parties.testInvestor attestationExpiresAt
+  offerCid <- createOffer parties terms offerExpiresAt settleBefore
+  compliancePendingCid <-
+    acceptOffer parties.testInvestor offerCid attestationCid
+  agreementCid <-
+    approveCompliance parties.testVerifier compliancePendingCid
+
+  _ <- submit parties.testInvestor do
+    exerciseCmd agreementCid PreparePayment with
+      paymentRef = "PAYMENT-EVIDENCE-FIRST"
+
+  submitMustFail parties.testInvestor do
+    exerciseCmd agreementCid PreparePayment with
+      paymentRef = "PAYMENT-EVIDENCE-DUPLICATE"
+
+testIssuerAndInvestorCannotBypassVerifier : Script ()
+testIssuerAndInvestorCannotBypassVerifier = script do
+  parties <- allocateTestParties "agreement-bypass"
+  now <- getTime
+  let terms = termsFor parties
+  let settleBefore = now `addRelTime` days 7
+  attestationCid <-
+    createAttestation parties parties.testInvestor (now `addRelTime` days 30)
+
+  submitMustFail (actAs [parties.testIssuer, parties.testInvestor]) do
+    createCmd PurchaseAgreement with
+      terms
+      eligibilityAttestationCid = attestationCid
+      settleBefore
+
+testReceiptCannotBypassVerifierOrCustodian : Script ()
+testReceiptCannotBypassVerifierOrCustodian = script do
+  parties <- allocateTestParties "receipt-bypass"
+  now <- getTime
+  let terms = termsFor parties
+  attestationCid <-
+    createAttestation parties parties.testInvestor (now `addRelTime` days 30)
+
+  submitMustFail (actAs [parties.testIssuer, parties.testInvestor]) do
+    createCmd SettlementReceipt with
+      terms
+      eligibilityAttestationCid = attestationCid
+      paymentRef = "UNVERIFIED-PAYMENT"
+      deliveryRef = "UNVERIFIED-DELIVERY"
+      settledAt = now
+
+testOfferVisibilityIsScoped : Script ()
+testOfferVisibilityIsScoped = script do
+  parties <- allocateTestParties "offer-privacy"
+  now <- getTime
+  let terms = termsFor parties
+  offerCid <- createOffer parties terms
+    (now `addRelTime` days 1)
+    (now `addRelTime` days 7)
+
+  Some _ <- queryContractId parties.testInvestor offerCid
+  None <- queryContractId parties.testCustodian offerCid
+  None <- queryContractId parties.testAuditor offerCid
+  pure ()
+
+testInvalidOfferIsRejected : Script ()
+testInvalidOfferIsRejected = script do
+  parties <- allocateTestParties "invalid-offer"
+  now <- getTime
+  let invalidTerms = (termsFor parties) with units = 0
+
+  submitMustFail parties.testIssuer do
+    createCmd AssetOffer with
+      terms = invalidTerms
+      offerExpiresAt = now `addRelTime` days 1
+      settleBefore = now `addRelTime` days 7

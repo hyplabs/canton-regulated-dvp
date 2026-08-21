@@ -1,0 +1,232 @@
+module Settlement.Regulated where
+
+data SettlementTerms = SettlementTerms
+  with
+    issuer : Party
+    investor : Party
+    verifier : Party
+    custodian : Party
+    auditor : Party
+    assetId : Text
+    assetClass : Text
+    units : Int
+    paymentAmount : Decimal
+    paymentInstrumentId : Text
+  deriving (Eq, Show)
+
+validSettlementTerms : SettlementTerms -> Bool
+validSettlementTerms terms =
+  terms.assetId /= ""
+    && terms.assetClass /= ""
+    && terms.units > 0
+    && terms.paymentAmount > 0.0
+    && terms.paymentInstrumentId /= ""
+
+require : CanAssert m => Text -> Bool -> m ()
+require msg invariant =
+  assertMsg ("The requirement '" <> msg <> "' was not met.") invariant
+
+template EligibilityAttestation
+  with
+    verifier : Party
+    investor : Party
+    assetClass : Text
+    expiresAt : Time
+  where
+    signatory verifier
+    observer investor
+    ensure assetClass /= ""
+
+    choice WithdrawAttestation : ()
+      controller verifier
+      do
+        pure ()
+
+template AssetOffer
+  with
+    terms : SettlementTerms
+    offerExpiresAt : Time
+    settleBefore : Time
+  where
+    signatory terms.issuer
+    observer terms.investor
+    ensure validSettlementTerms terms && offerExpiresAt < settleBefore
+
+    choice AcceptOffer : ContractId CompliancePending
+      with
+        eligibilityAttestationCid : ContractId EligibilityAttestation
+      controller terms.investor
+      do
+        now <- getTime
+        attestation <- fetch eligibilityAttestationCid
+        validateEligibility now terms attestation
+        require "Offer has not expired" (now < offerExpiresAt)
+        require "Settlement deadline has not passed" (now < settleBefore)
+
+        create CompliancePending with
+          terms
+          eligibilityAttestationCid
+          settleBefore
+
+    choice CancelOffer : ()
+      controller terms.issuer
+      do
+        pure ()
+
+template CompliancePending
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    settleBefore : Time
+  where
+    signatory terms.issuer, terms.investor
+    observer terms.verifier
+    ensure validSettlementTerms terms
+
+    choice ApproveCompliance : ContractId PurchaseAgreement
+      controller terms.verifier
+      do
+        now <- getTime
+        attestation <- fetch eligibilityAttestationCid
+        validateEligibility now terms attestation
+        require "Settlement deadline has not passed" (now < settleBefore)
+
+        create PurchaseAgreement with ..
+
+    choice RejectCompliance : ()
+      controller terms.verifier
+      do
+        pure ()
+
+    choice ExpireCompliancePending : ()
+      controller terms.issuer
+      do
+        now <- getTime
+        require "Settlement deadline has passed" (now >= settleBefore)
+
+template PurchaseAgreement
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    settleBefore : Time
+  where
+    signatory terms.issuer, terms.investor, terms.verifier
+    observer terms.custodian
+    ensure validSettlementTerms terms
+
+    choice PreparePayment : ContractId PaymentPrepared
+      with
+        paymentRef : Text
+      controller terms.investor
+      do
+        now <- getTime
+        attestation <- fetch eligibilityAttestationCid
+        validateEligibility now terms attestation
+        require "Settlement deadline has not passed" (now < settleBefore)
+        require "Payment reference is present" (paymentRef /= "")
+
+        create PaymentPrepared with
+          terms
+          eligibilityAttestationCid
+          settleBefore
+          paymentRef
+
+    choice ExpireAgreement : ()
+      controller terms.issuer
+      do
+        now <- getTime
+        require "Settlement deadline has passed" (now >= settleBefore)
+
+template PaymentPrepared
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    settleBefore : Time
+    paymentRef : Text
+  where
+    signatory terms.issuer, terms.investor, terms.verifier
+    observer terms.custodian
+    ensure validSettlementTerms terms && paymentRef /= ""
+
+    choice ConfirmDelivery : ContractId ReadyToSettle
+      with
+        deliveryRef : Text
+      controller terms.custodian
+      do
+        now <- getTime
+        require "Settlement deadline has not passed" (now < settleBefore)
+        require "Delivery reference is present" (deliveryRef /= "")
+
+        create ReadyToSettle with
+          terms
+          eligibilityAttestationCid
+          settleBefore
+          paymentRef
+          deliveryRef
+
+    choice ExpirePayment : ()
+      controller terms.issuer
+      do
+        now <- getTime
+        require "Settlement deadline has passed" (now >= settleBefore)
+
+template ReadyToSettle
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    settleBefore : Time
+    paymentRef : Text
+    deliveryRef : Text
+  where
+    signatory terms.issuer, terms.investor, terms.verifier, terms.custodian
+    ensure validSettlementTerms terms && paymentRef /= "" && deliveryRef /= ""
+
+    choice FinalizeSettlement : ContractId SettlementReceipt
+      controller terms.issuer, terms.verifier
+      do
+        now <- getTime
+        attestation <- fetch eligibilityAttestationCid
+        validateEligibility now terms attestation
+        require "Settlement deadline has not passed" (now < settleBefore)
+
+        create SettlementReceipt with
+          terms
+          eligibilityAttestationCid
+          paymentRef
+          deliveryRef
+          settledAt = now
+
+    choice ExpireReadySettlement : ()
+      controller terms.issuer
+      do
+        now <- getTime
+        require "Settlement deadline has passed" (now >= settleBefore)
+
+template SettlementReceipt
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    paymentRef : Text
+    deliveryRef : Text
+    settledAt : Time
+  where
+    signatory terms.issuer, terms.investor, terms.verifier, terms.custodian
+    observer terms.auditor
+    ensure
+      validSettlementTerms terms
+        && paymentRef /= ""
+        && deliveryRef /= ""
+
+validateEligibility
+  : Time
+  -> SettlementTerms
+  -> EligibilityAttestation
+  -> Update ()
+validateEligibility now terms attestation = do
+  require "Attestation is for this investor"
+    (attestation.investor == terms.investor)
+  require "Attestation verifier matches settlement verifier"
+    (attestation.verifier == terms.verifier)
+  require "Attestation asset class matches settlement"
+    (attestation.assetClass == terms.assetClass)
+  require "Attestation has not expired" (now < attestation.expiresAt)

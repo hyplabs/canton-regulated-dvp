@@ -1,0 +1,13 @@
+sdk-version: 3.5.2
+name: canton-regulated-settlement-tests
+source: daml
+version: 0.1.0
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+data-dependencies:
+  - ../model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
+build-options:
+  - --ghc-option=-Wunused-binds
+  - --ghc-option=-Wunused-matches

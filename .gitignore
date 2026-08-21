@@ -1,0 +1,12 @@
+# Daml build output
+daml/*/.daml/
+
+# Local runtime and test output
+.env
+.env.*
+coverage/
+test-results/
+
+# Future application layers
+node_modules/
+dist/
