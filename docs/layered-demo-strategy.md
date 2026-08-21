@@ -26,17 +26,18 @@ The fallback technical demo is:
 
 Goal: turn the V1 settlement evidence into actual Canton integration.
 
-Status: payment integration is locally complete; LocalNet and the delivery leg
-remain.
+Status: the real Canton Coin payment path is complete on LocalNet; the delivery
+leg remains.
 
 1. Completed: pin token-standard API DAR data dependencies.
 2. Completed: expose the payment leg through `AllocationRequest`.
 3. Completed: validate and execute one matching `Allocation` atomically with
    advancement to `PaymentPrepared`.
-4. Next: replace the test allocation with a Quickstart/LocalNet registry
-   allocation.
+4. Completed: execute a Quickstart/LocalNet Canton Coin allocation and verify
+   both wallet balances.
 5. Next: model and execute the tokenized delivery leg in the same transaction.
-6. Then: add JSON Ledger API examples or a thin backend adapter.
+6. Completed: add a repeatable JSON Ledger API runner.
+7. Then: add a thin backend adapter for the presentation UI.
 
 The official Quickstart licensing workflow is the primary implementation
 reference because it validates an allocation and executes its transfer inside a

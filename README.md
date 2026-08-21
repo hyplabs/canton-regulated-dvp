@@ -4,14 +4,15 @@ A tested Daml proof of concept for a private, compliance-gated settlement
 workflow with a Canton Token Standard payment path.
 
 V1 demonstrates contract authorization, privacy, deadlines, active eligibility,
-and single-use state transitions. The first V2 slice now publishes a standard
-`AllocationRequest`, validates a funded `Allocation`, and executes its transfer
-before the workflow can reach `PaymentPrepared`.
+and single-use state transitions. V2 publishes a standard `AllocationRequest`,
+validates a funded `Allocation`, and executes its transfer before the workflow
+can reach `PaymentPrepared`. The LocalNet runner proves that path with real
+Canton Coin and separate app-provider/app-user participants.
 
-This remains **a payment-versus-workflow POC, not full DvP**. Tests use a small
-allocation implementation instead of a real token registry, and delivery is
-still a custodian evidence reference. A true DvP claim requires a LocalNet token
-registry and a second tokenized delivery leg.
+This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
+small allocation implementation, while the LocalNet path uses the real Canton
+Coin registry. Delivery is still a custodian evidence reference; a true DvP
+claim requires a second tokenized delivery leg.
 
 ## Workflow
 
@@ -24,13 +25,13 @@ EligibilityAttestation + AssetOffer
                     v
             PurchaseAgreement
                     |
-             +------+------+
-             |             |
-             v             v
-      PreparePayment   TokenizedPaymentRequest
-          (V1)          + funded Allocation
-             |             |
-             +------+------+
+       payment proposal/approval/acceptance
+                    |
+                    v
+       TokenizedPaymentRequest (standard interface)
+                    |
+          real Canton Coin Allocation
+                    |
                     v
              PaymentPrepared
                     |
@@ -45,6 +46,13 @@ The verifier explicitly binds its attestation to the agreement. Finalization is
 jointly controlled by the issuer and verifier and re-fetches the attestation, so
 an expired or withdrawn credential cannot produce a receipt. Custodian authority
 is added when delivery is confirmed.
+
+The minimal LocalNet run uses two application parties: the app-provider party
+plays issuer, verifier, custodian, and auditor, while the app-user party plays
+the investor. The Daml tests retain five distinct business parties. A production
+topology with independently hosted issuer and verifier parties would also need
+an interactive multi-party submission or another staged approval for their
+jointly controlled completion choice.
 
 ## Guarantees Proven By Tests
 
@@ -75,6 +83,8 @@ is added when delivery is confirmed.
 - `daml/multi-package.yaml` - four-package Daml workspace.
 - `docs/` - architecture, learning guide, strategy, research, and runbook.
 - `scripts/test.sh` - builds every package and executes both test suites.
+- `scripts/localnet-demo.sh` - uploads both production DARs and executes a real
+  Canton Coin settlement against a running Quickstart LocalNet.
 - `.github/workflows/daml.yml` - reproducible JDK, DPM, build, and test CI.
 
 Official source snapshots are kept outside this repository in the sibling
@@ -102,6 +112,12 @@ cd daml/tokenized-tests
 dpm test -p setupTokenizedPaymentDemo
 ```
 
+With Quickstart LocalNet running, execute the real Canton Coin path:
+
+```bash
+./scripts/localnet-demo.sh
+```
+
 See `docs/runbook.md` for environment and troubleshooting details.
 The exact real-registry handoff is in
 `docs/localnet-integration-milestone.md`.
@@ -113,6 +129,13 @@ The exact real-registry handoff is in
 - Production and test packages remain separated.
 - The V2 payment request implements Token Standard `AllocationRequest` V1 and
   consumes a matching `Allocation` V1 through its standard interface choice.
+- Quickstart LocalNet is running with separate app-provider and app-user
+  participants, and both production DARs are uploaded to each.
+- The wallet discovers the request without app-specific parsing, allocates real
+  Canton Coin, and the registry allocation executes atomically with the
+  regulated workflow transition.
+- The repeatable LocalNet runner verifies consumed request/allocation state,
+  final receipt creation, and sender/receiver balance changes.
 - JDK 21 is provisioned locally for this workspace.
-- LocalNet, a real registry allocation, a tokenized delivery leg, JSON Ledger
-  API integration, and the stakeholder UI remain upcoming V2/V3 work.
+- A tokenized delivery leg, LocalNet negative-path coverage, and the stakeholder
+  UI remain upcoming V2/V3 work.

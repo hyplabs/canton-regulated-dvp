@@ -302,10 +302,10 @@ control completion.
 interface, consumes itself on execution, and creates a receipt. It does not
 track balances, lock holdings, calculate fees, or represent a production token.
 
-That distinction lets the tests answer one precise question now: "Does our app
-integrate with any conforming allocation contract correctly?" The next LocalNet
-step answers a different question: "Can a real wallet and token registry fund
-and execute this request end to end?"
+That distinction lets the tests answer one precise question: "Does our app
+integrate with any conforming allocation contract correctly?" The LocalNet
+runner answers the complementary question: "Can a real wallet and token
+registry fund and execute this request end to end?" Both now pass.
 
 The official comparison implementation is
 `../resources/cn-quickstart/quickstart/daml/licensing`, and the fuller DvP
@@ -321,3 +321,61 @@ example is in the sibling Quickstart token-standard test sources.
 - `with` performs record construction and record update.
 - `agreement` is reserved template syntax in Daml, so the local fetched value is
   named `purchaseAgreement`.
+
+## 18. Multi-Party Tests Are Not Multi-Participant Workflows
+
+The first test fixture created `TokenizedPaymentRequest` with one script command:
+
+```daml
+submit (actAs [issuer, investor, verifier]) do
+  createCmd TokenizedPaymentRequest with ...
+```
+
+That is valid when one participant and user can act for every party. In the
+Quickstart topology, the issuer and investor are hosted by different
+participants, so neither participant may claim both parties in one command.
+
+The production model now accumulates authority over three ordinary actions:
+
+```text
+TokenizedPaymentProposal             signatory issuer
+  -> ApproveTokenizedPayment          controller verifier
+ApprovedTokenizedPayment             signatories issuer + verifier
+  -> AcceptTokenizedPayment           controller investor
+TokenizedPaymentRequest              signatories issuer + verifier + investor
+```
+
+The signatories of each consumed parent authorize its direct consequences, and
+the current choice controller contributes the next party's authority. This is
+the same language rule used by the V1 compliance workflow, now applied across
+real participant boundaries.
+
+## 19. Daml Values On The JSON Ledger API
+
+Daml's JSON encoding is typed even though JSON itself is not. Two details from
+the LocalNet runner are easy to miss:
+
+- Daml `Int64` and `Decimal` values are JSON strings such as `"1000"` and
+  `"10.0"`, avoiding JavaScript precision loss.
+- Daml `Time` fields in contract arguments use ISO-8601 text, while the wallet's
+  off-ledger allocation API represents deadlines as integer microseconds since
+  the Unix epoch.
+
+The runner deliberately constructs JSON with `jq` rather than concatenating
+contract payload strings. A malformed numeric representation is rejected before
+Daml interpretation.
+
+## 20. Off-Ledger Context Enables On-Ledger Atomicity
+
+Executing Canton Coin requires current registry contracts such as
+`AmuletRules`, `OpenMiningRound`, and the locked holding. The registry's
+execute-transfer context endpoint returns:
+
+- `choiceContextData`, encoded as Token Standard `AnyValue` entries.
+- `disclosedContracts`, including opaque event blobs needed by the participant.
+
+`scripts/localnet-demo.sh` places the first value in `ExtraArgs.context` and the
+second in the Ledger API command envelope. Daml can then exercise the real
+allocation as a child of `CompleteTokenizedPayment`. The transfer, agreement
+archive, request consumption, and `PaymentPrepared` creation either all commit
+or all fail.

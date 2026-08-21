@@ -10,7 +10,9 @@ after payment so the integration is narrow and reviewable.
 
 ```text
 PurchaseAgreement
-        +
+        |
+proposal -> verifier approval -> investor acceptance
+        |
 TokenizedPaymentRequest (implements AllocationRequest)
         +
 funded Allocation (implemented by a token registry)
@@ -60,18 +62,29 @@ investor's advance authorization while retaining the V1 compliance gate; its
 direct child allocation exercise has the sender, receiver, and executor
 authority required by the standard.
 
+Those parties may be hosted on different Canton participants, so the request is
+not created with one artificial multi-party submission. `TokenizedPaymentProposal`
+is signed by the issuer, `ApproveTokenizedPayment` adds verifier authority in an
+`ApprovedTokenizedPayment`, and `AcceptTokenizedPayment` adds investor authority
+when it creates the final request. Each action can be submitted through the
+participant that hosts its controller.
+
+The minimal LocalNet runner maps issuer and verifier to the same provider party,
+so that party can exercise their jointly controlled completion choice. With
+independently hosted issuer and verifier parties, completion needs Canton's
+interactive multi-party submission flow or a further staged approval state.
+
 The instrument's wallet or registry remains responsible for creating a funded
 allocation before `allocateBefore`. The application executor may execute it
 only before `settleBefore`.
 
 ## Test Boundary
 
-`MockAllocation` is a test-only implementation of the real `Allocation`
-interface. It records an execution receipt but does not model balances or a
-specific token registry. This proves interface compatibility, exact matching,
-authorization, and transaction atomicity without pretending that mock funds are
-real tokens.
+`MockAllocation` remains a test-only implementation of the real `Allocation`
+interface. It keeps failure tests fast and deterministic. The separate
+`scripts/localnet-demo.sh` path uses Quickstart's real Canton Coin wallet and
+registry, including registry-provided choice context and disclosed contracts.
 
-The next runtime milestone is to replace `MockAllocation` with an allocation
-from a Quickstart/LocalNet registry. Full DvP then requires a second standard
-allocation for delivery, both executed in the same settlement transaction.
+That LocalNet path proves payment-versus-workflow with real balances. Full DvP
+still requires a second standard allocation for delivery, with both legs
+executed in the same settlement transaction.

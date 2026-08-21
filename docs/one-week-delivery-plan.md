@@ -19,14 +19,17 @@ Date range: 2026-08-20 to 2026-08-27
 - Atomically execute a matching payment `Allocation` before workflow advance.
 - Added seven passing V2 scripts and expanded the learning guide.
 - Added a reproducible GitHub Actions workflow.
+- Started Quickstart LocalNet and uploaded both production model DARs to both
+  application participants.
+- Executed a real Canton Coin allocation and regulated settlement end to end.
+- Added a repeatable JSON Ledger API LocalNet runner with balance and active-state
+  verification.
 
-## Next: V2 Runtime Slice
+## Next: Complete V2
 
-1. Start Quickstart/LocalNet and upload both production model DARs.
-2. Replace `MockAllocation` with one real registry-funded payment allocation.
-3. Reproduce the happy path through Ledger API commands.
-4. Model the second asset leg and atomic DvP transaction.
-5. Add missing-allocation and expired-allocation runtime tests.
+1. Model the second asset leg and atomic DvP transaction.
+2. Add missing-allocation and expired-allocation runtime tests.
+3. Capture representative LocalNet logs as release evidence.
 
 ## Then: V3 Presentation Slice
 

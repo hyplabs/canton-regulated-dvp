@@ -37,8 +37,8 @@ Generated DARs:
 ```text
 daml/model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
 daml/tests/.daml/dist/canton-regulated-settlement-tests-0.1.0.dar
-daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.1.0.dar
-daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.1.0.dar
+daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.2.0.dar
+daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.2.0.dar
 ```
 
 Only the two `*-model` DARs are intended for upload to a participant. The test
@@ -67,6 +67,36 @@ dpm test -p setupTokenizedPaymentDemo
 dpm test -p MismatchedAllocation
 ```
 
+## Quickstart LocalNet
+
+The sibling Quickstart checkout is configured for LocalNet, shared-secret auth,
+test mode, and no observability. Start it from its repository:
+
+```bash
+cd ../resources/cn-quickstart/quickstart
+env JAVA_HOME="$HOME/.local/share/canton-jdk-21/usr/lib/jvm/java-21-openjdk-amd64" \
+  PATH="$HOME/.dpm/bin:$JAVA_HOME/bin:$PATH" \
+  make start
+```
+
+Then run the real Canton Coin settlement from this repository:
+
+```bash
+./scripts/localnet-demo.sh
+```
+
+The runner is repeatable. It uploads only production DARs, uses the current
+tokenized model package ID, funds the LocalNet investor when necessary, and
+prints the final receipt, consumed allocation, and before/after balances.
+
+Useful Quickstart endpoints are:
+
+- Investor wallet: `http://wallet.localhost:2000`
+- Provider wallet: `http://wallet.localhost:3000`
+- Ledger API Swagger: `http://localhost:9090`
+
+Stop the stack with `make stop` from the Quickstart directory.
+
 ## Common Failures
 
 `java: command not found` means JDK 21 is missing or not discoverable. Use the
@@ -78,6 +108,10 @@ JDK installation or a complete Temurin archive on a clean machine.
 
 If a test package cannot find a model DAR, run `dpm build --all` from `daml`;
 the local `multi-package.yaml` establishes the build order.
+
+If `localnet-demo.sh` cannot find `splice-onboarding`, start Quickstart first.
+If a wallet request times out, check `docker ps` and wait until both `canton` and
+`splice` are healthy before retrying.
 
 The Token Standard API DARs are checked into `daml/vendor` so builds do not
 depend on the sibling research repositories. Their origin, license, commit, and

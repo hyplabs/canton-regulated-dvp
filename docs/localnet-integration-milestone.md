@@ -7,41 +7,60 @@ Date: 2026-08-21
 | Prerequisite | Local status |
 | --- | --- |
 | Docker client | `29.6.1`, meets Quickstart minimum `27.0.0` |
-| Docker Compose | `5.1.4`, meets Quickstart minimum `2.27.0` |
-| Docker daemon | Not reachable at `/var/run/docker.sock` |
+| Docker Compose | `5.3.0`, meets Quickstart minimum `2.27.0` |
+| Docker daemon | Reachable through Docker Desktop WSL integration |
 | Memory | 7.7 GiB visible, effectively the 8 GB recommended minimum |
 | Free disk | About 819 GiB |
 | Daml SDK | `3.5.2`, aligned with Quickstart |
 
-The first runtime attempt is blocked only on starting or connecting the Docker
-daemon. At this memory tier, use shared-secret authentication and disable
-observability for the initial path.
+Quickstart is configured with shared-secret authentication, observability off,
+and test mode on. Canton, Splice, PostgreSQL, wallet UIs, and onboarding all
+reached healthy status.
+
+The minimal topology has two application parties. The app-provider party fills
+the issuer, verifier, custodian, and auditor roles; the app-user party is the
+investor. This keeps wallet funding and completion demonstrable without claiming
+that the run proves five independently operated participants.
 
 ## Runtime Path
-
-Once Docker is reachable:
 
 1. Run `make check-docker` in `../resources/cn-quickstart/quickstart`.
 2. Run `make setup`; select LocalNet, shared-secret authentication,
    observability off, and test mode on.
-3. Run `./scripts/test.sh` here to build the two production DARs.
-4. Make both production DARs available under `/canton/dars` in Quickstart's
-   `splice-onboarding` container before startup.
-5. Start Quickstart with `make start`. Its onboarding helper uploads every DAR
-   in that directory to both app participants using `POST /v2/packages`.
-6. Use the registry metadata API to obtain the instrument admin and construct
-   `InstrumentId { admin, id = "Amulet" }` for Canton Coin.
-7. Create the regulated agreement and `TokenizedPaymentRequest` through the
-   Ledger API.
-8. Confirm the investor wallet discovers the request through the standard
-   `AllocationRequest` interface, then fund it through
-   `AllocationFactory_Allocate`.
-9. Query the resulting `Allocation` by the request's settlement reference.
-10. Fetch its execute-transfer choice context from the registry's off-ledger
-    allocation API and submit `CompleteTokenizedPayment` with the returned
-    disclosures and `ExtraArgs`.
-11. Confirm the allocation is consumed and `PaymentPrepared` is active, then
-    complete delivery and final settlement.
+3. Start Quickstart with `make start`.
+4. Run `./scripts/test.sh` here to build and test all four Daml packages.
+5. Run `./scripts/localnet-demo.sh`.
+
+The demo runner uploads the latest production DARs to both participants, obtains
+the Quickstart parties and Canton Coin admin, and submits each business action
+through the owning participant's JSON Ledger API. The investor wallet discovers
+the resulting `AllocationRequest`, funds it with its `/v0/allocations` endpoint,
+and returns a real `AmuletAllocation` contract.
+
+The runner then retrieves execute-transfer context and disclosures from the
+registry off-ledger API, submits `CompleteTokenizedPayment`, and completes the
+delivery and receipt states. It finishes by checking both wallet balances and
+proving the allocation request and allocation were consumed.
+
+Stop the stack from the Quickstart directory with:
+
+```bash
+make stop
+```
+
+Use `make clean` only when a fresh LocalNet ledger and wallet state are desired.
+
+## Verified Result
+
+Two consecutive runs completed successfully. On the repeatability run:
+
+- Investor balance changed from `19990.0000000000` to `19980.0000000000`
+  Amulet.
+- Provider balance changed from `10.0000000000` to `20.0000000000` Amulet.
+- The wallet reported zero active instances of that allocation request and
+  allocation after settlement.
+- Canton created a final `SettlementReceipt` retaining the payment and delivery
+  references.
 
 ## Code Reuse From Quickstart
 
@@ -60,12 +79,12 @@ not invent a token-specific transfer command.
 
 ## Done Criteria
 
-- Both POC model DARs are visible on the app-provider and app-user participants.
-- The wallet discovers the payment request without app-specific request parsing.
-- A real Canton Coin allocation is created and found by settlement reference.
-- `CompleteTokenizedPayment` succeeds with registry-provided choice context.
-- Balances and active contracts prove the transfer and workflow transition.
-- The inactive, mismatched, and expired allocation cases are repeated against
+- [x] Both POC model DARs are visible on both application participants.
+- [x] The wallet discovers the request without app-specific request parsing.
+- [x] A real Canton Coin allocation is created for the settlement reference.
+- [x] `CompleteTokenizedPayment` succeeds with registry-provided context.
+- [x] Balances and active state prove the transfer and workflow transition.
+- [ ] The inactive, mismatched, and expired allocation cases are repeated against
   the real registry.
 
 The second delivery allocation is a separate milestone. Until both legs execute

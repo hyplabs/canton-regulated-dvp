@@ -128,9 +128,8 @@ setupRequestFixture prefix = do
     exerciseCmd compliancePendingCid ApproveCompliance
 
   let requestId = prefix <> "-payment-001"
-  requestCid <- submit (actAs
-    [parties.issuer, parties.investor, parties.verifier]) do
-    createCmd TokenizedPaymentRequest with
+  proposalCid <- submit parties.issuer do
+    createCmd TokenizedPaymentProposal with
       requestId
       terms
       agreementCid
@@ -139,6 +138,12 @@ setupRequestFixture prefix = do
       requestedAt = now
       allocateBefore
       settleBefore
+
+  approvedCid <- submit parties.verifier do
+    exerciseCmd proposalCid ApproveTokenizedPayment
+
+  requestCid <- submit parties.investor do
+    exerciseCmd approvedCid AcceptTokenizedPayment
 
   Some request <- queryContractId parties.investor requestCid
   let requestView = view $ toInterface @AllocationRequest request

@@ -16,12 +16,15 @@ Date: 2026-08-20
 ## Canton Runtime
 
 - [x] Verify Docker and host resource prerequisites.
-- [ ] Start or connect the Docker daemon on this workstation.
-- [ ] Start Canton Quickstart/LocalNet.
-- [ ] Upload the model DAR to the local participant.
-- [ ] Allocate/map application parties.
-- [ ] Exercise the workflow through Ledger API commands.
-- [ ] Capture LocalNet logs and a repeatable teardown procedure.
+- [x] Start or connect the Docker daemon on this workstation.
+- [x] Start Canton Quickstart/LocalNet.
+- [x] Upload both model DARs to both local application participants.
+- [x] Allocate/map application parties.
+- [x] Exercise the workflow through Ledger API commands.
+- [x] Execute a real Canton Coin allocation through the wallet and registry.
+- [x] Add a repeatable LocalNet demo runner.
+- [x] Document a repeatable teardown procedure.
+- [ ] Capture representative LocalNet logs as release evidence.
 
 ## Token Standard
 

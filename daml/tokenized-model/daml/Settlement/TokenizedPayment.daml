@@ -12,6 +12,62 @@ import Splice.Api.Token.MetadataV1
 paymentLegId : Text
 paymentLegId = "payment"
 
+template TokenizedPaymentProposal
+  with
+    requestId : Text
+    terms : SettlementTerms
+    agreementCid : ContractId PurchaseAgreement
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    paymentInstrumentId : InstrumentId
+    requestedAt : Time
+    allocateBefore : Time
+    settleBefore : Time
+  where
+    signatory terms.issuer
+    observer terms.investor, terms.verifier
+    ensure
+      validTokenizedPaymentRequest
+        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
+
+    choice ApproveTokenizedPayment : ContractId ApprovedTokenizedPayment
+      controller terms.verifier
+      do
+        now <- getTime
+        require "Payment allocation deadline has not passed"
+          (now < allocateBefore)
+        validateTokenizedPaymentReferences
+          now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
+
+        create ApprovedTokenizedPayment with ..
+
+template ApprovedTokenizedPayment
+  with
+    requestId : Text
+    terms : SettlementTerms
+    agreementCid : ContractId PurchaseAgreement
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    paymentInstrumentId : InstrumentId
+    requestedAt : Time
+    allocateBefore : Time
+    settleBefore : Time
+  where
+    signatory terms.issuer, terms.verifier
+    observer terms.investor
+    ensure
+      validTokenizedPaymentRequest
+        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
+
+    choice AcceptTokenizedPayment : ContractId TokenizedPaymentRequest
+      controller terms.investor
+      do
+        now <- getTime
+        require "Payment allocation deadline has not passed"
+          (now < allocateBefore)
+        validateTokenizedPaymentReferences
+          now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
+
+        create TokenizedPaymentRequest with ..
+
 template TokenizedPaymentRequest
   with
     requestId : Text
@@ -26,11 +82,8 @@ template TokenizedPaymentRequest
     signatory terms.issuer, terms.investor, terms.verifier
     observer terms.custodian
     ensure
-      validSettlementTerms terms
-        && requestId /= ""
-        && terms.paymentInstrumentId == paymentInstrumentId.id
-        && requestedAt < allocateBefore
-        && allocateBefore < settleBefore
+      validTokenizedPaymentRequest
+        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
 
     postconsuming choice CompleteTokenizedPayment : ContractId PaymentPrepared
       with
@@ -116,3 +169,45 @@ tokenizedPaymentRequestView TokenizedPaymentRequest{..} =
           meta)
       ]
     meta
+
+validTokenizedPaymentRequest
+  : Text
+  -> SettlementTerms
+  -> InstrumentId
+  -> Time
+  -> Time
+  -> Time
+  -> Bool
+validTokenizedPaymentRequest
+    requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore =
+  validSettlementTerms terms
+    && requestId /= ""
+    && terms.paymentInstrumentId == paymentInstrumentId.id
+    && requestedAt < allocateBefore
+    && allocateBefore < settleBefore
+
+validateTokenizedPaymentReferences
+  : Time
+  -> SettlementTerms
+  -> ContractId PurchaseAgreement
+  -> ContractId EligibilityAttestation
+  -> Time
+  -> Time
+  -> Update ()
+validateTokenizedPaymentReferences
+    now terms agreementCid eligibilityAttestationCid requestedAt settleBefore = do
+  require "Payment request time is not in the future"
+    (requestedAt <= now)
+  require "Tokenized payment settlement deadline has not passed"
+    (now < settleBefore)
+
+  purchaseAgreement <- fetch agreementCid
+  require "Payment request references these settlement terms"
+    (purchaseAgreement.terms == terms)
+  require "Payment request references this eligibility attestation"
+    (purchaseAgreement.eligibilityAttestationCid == eligibilityAttestationCid)
+  require "Payment request uses the agreement settlement deadline"
+    (purchaseAgreement.settleBefore == settleBefore)
+
+  attestation <- fetch eligibilityAttestationCid
+  validateEligibility now terms attestation
