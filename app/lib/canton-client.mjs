@@ -68,6 +68,17 @@ function validateContractId(contractId) {
   return contractId;
 }
 
+function timestampMicros(value, label) {
+  const millis = Date.parse(value);
+  if (!Number.isFinite(millis)) {
+    throw new CantonApiError(`Wallet request ${label} is invalid.`, {
+      status: 502,
+      code: "INVALID_WALLET_REQUEST",
+    });
+  }
+  return millis * 1_000;
+}
+
 export function validateOfferInput(input = {}) {
   const attestationContractId = validateContractId(input.attestationContractId);
   const assetId = typeof input.assetId === "string" ? input.assetId.trim() : "";
@@ -589,6 +600,118 @@ export class CantonClient {
     return contract;
   }
 
+  async allocateTokenizedPayment(requestContractId) {
+    validateContractId(requestContractId);
+    const [context, paymentRequest] = await Promise.all([
+      this.getContext(),
+      this.getTokenizedPaymentRequest(requestContractId, { waitForWallet: true }),
+    ]);
+    if (paymentRequest.status !== "active") {
+      throw new CantonApiError("Tokenized payment request is not active.", {
+        status: 409,
+        code: "PAYMENT_REQUEST_INACTIVE",
+      });
+    }
+
+    const walletRequest = await this.getWalletAllocationRequest(requestContractId);
+    const payload = walletRequest?.contract?.payload;
+    const paymentLeg = payload?.transferLegs?.payment;
+    if (!payload?.settlement || !paymentLeg) {
+      throw new CantonApiError("The standard wallet returned an invalid payment request.", {
+        code: "INVALID_WALLET_REQUEST",
+      });
+    }
+
+    const allocationResponse = await this.request(
+      "POST",
+      "/v0/allocations",
+      {
+        settlement: {
+          executor: payload.settlement.executor,
+          settlement_ref: {
+            id: payload.settlement.settlementRef?.id,
+            cid: payload.settlement.settlementRef?.cid,
+          },
+          requested_at: timestampMicros(payload.settlement.requestedAt, "requestedAt"),
+          allocate_before: timestampMicros(payload.settlement.allocateBefore, "allocateBefore"),
+          settle_before: timestampMicros(payload.settlement.settleBefore, "settleBefore"),
+          meta: {
+            ...(payload.settlement.meta?.values ?? {}),
+            ...(paymentLeg.meta?.values ?? {}),
+          },
+        },
+        transfer_leg_id: "payment",
+        transfer_leg: {
+          receiver: paymentLeg.receiver,
+          amount: paymentLeg.amount,
+          meta: paymentLeg.meta?.values ?? {},
+        },
+      },
+      context.userWalletToken,
+      this.userValidatorUrl,
+    );
+    const allocationContractId = allocationResponse?.output?.allocation_cid;
+    if (!allocationContractId) {
+      throw new CantonApiError("The wallet did not return a completed Canton Coin allocation.", {
+        code: "ALLOCATION_CONTRACT_MISSING",
+        details: allocationResponse,
+      });
+    }
+
+    return this.waitForAllocation(allocationContractId, {
+      requestId: paymentRequest.requestId,
+      settlementRefCid: payload.settlement.settlementRef?.cid,
+      amount: paymentLeg.amount,
+      instrumentId: paymentLeg.instrumentId?.id ?? paymentRequest.terms.paymentInstrumentId,
+      sender: paymentLeg.sender,
+      receiver: paymentLeg.receiver,
+      settleBefore: payload.settlement.settleBefore,
+    });
+  }
+
+  async getCantonCoinAllocation(contractId, fallback = {}) {
+    const context = await this.getContext();
+    const contract = await this.getContract(contractId, "Canton Coin allocation", {
+      party: context.investorParty,
+      token: context.userToken,
+      ledgerUrl: this.userLedgerUrl,
+    });
+    const allocation = contract.payload.allocation ?? contract.payload;
+    const transferLeg = allocation.transferLeg ?? allocation.transfer_leg ?? {};
+    const settlement = allocation.settlement ?? {};
+    return {
+      kind: "allocation",
+      contractId,
+      templateId: contract.created.templateId,
+      status: contract.status,
+      requestId:
+        fallback.requestId ?? settlement.settlementRef?.id ?? settlement.settlement_ref?.id,
+      settlementRefCid:
+        fallback.settlementRefCid ??
+        settlement.settlementRef?.cid ??
+        settlement.settlement_ref?.cid,
+      amount: fallback.amount ?? transferLeg.amount,
+      instrumentId: fallback.instrumentId ?? "Amulet",
+      sender: fallback.sender ?? transferLeg.sender ?? context.investorParty,
+      receiver: fallback.receiver ?? transferLeg.receiver ?? context.providerParty,
+      settleBefore: fallback.settleBefore ?? settlement.settleBefore,
+    };
+  }
+
+  async waitForAllocation(contractId, fallback) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        return await this.getCantonCoinAllocation(contractId, fallback);
+      } catch (error) {
+        if (error.code !== "CONTRACT_NOT_FOUND" || attempt === 9) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    }
+    throw new CantonApiError("Canton Coin allocation was not visible on the ledger.", {
+      code: "ALLOCATION_NOT_VISIBLE",
+    });
+  }
+
   async getPaymentAuthorizationContract(contractId, kind, template, label) {
     const contract = await this.getContract(contractId, label);
     const { created, payload } = contract;
@@ -610,20 +733,32 @@ export class CantonClient {
 
   async isWalletRequestVisible(contractId) {
     try {
-      const context = await this.getContext();
-      const requests = await this.request(
-        "GET",
-        "/v0/wallet/token-standard/allocation-requests",
-        undefined,
-        context.userWalletToken,
-        this.userValidatorUrl,
-      );
-      return (requests.allocation_requests ?? []).some(
-        (request) => request?.contract?.contract_id === contractId,
-      );
+      return Boolean(await this.getWalletAllocationRequest(contractId));
     } catch {
       return false;
     }
+  }
+
+  async getWalletAllocationRequest(contractId) {
+    validateContractId(contractId);
+    const context = await this.getContext();
+    const requests = await this.request(
+      "GET",
+      "/v0/wallet/token-standard/allocation-requests",
+      undefined,
+      context.userWalletToken,
+      this.userValidatorUrl,
+    );
+    const request = (requests.allocation_requests ?? []).find(
+      (candidate) => candidate?.contract?.contract_id === contractId,
+    );
+    if (!request) {
+      throw new CantonApiError("The payment request is not available in the investor wallet.", {
+        status: 409,
+        code: "WALLET_REQUEST_NOT_FOUND",
+      });
+    }
+    return request;
   }
 
   async waitForWalletDiscovery(contractId) {
@@ -634,24 +769,26 @@ export class CantonClient {
     return false;
   }
 
-  async getContract(contractId, label) {
+  async getContract(contractId, label, access = {}) {
     validateContractId(contractId);
     const context = await this.getContext();
+    const party = access.party ?? context.providerParty;
     const events = await this.request(
       "POST",
       "/v2/events/events-by-contract-id",
       {
         contractId,
         eventFormat: {
-          filtersByParty: { [context.providerParty]: {} },
+          filtersByParty: { [party]: {} },
           verbose: true,
         },
       },
-      context.providerToken,
+      access.token ?? context.providerToken,
+      access.ledgerUrl ?? this.providerLedgerUrl,
     );
     const created = normalizeCreatedEvent(events.created);
     if (!created) {
-      throw new CantonApiError(`The ${label} is not visible to the provider.`, {
+      throw new CantonApiError(`The ${label} is not visible to ${party}.`, {
         status: 404,
         code: "CONTRACT_NOT_FOUND",
       });

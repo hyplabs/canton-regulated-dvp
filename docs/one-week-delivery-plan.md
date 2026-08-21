@@ -31,6 +31,8 @@ Date range: 2026-08-20 to 2026-08-27
 - Added verifier compliance approval and active purchase-agreement evidence.
 - Added three-party tokenized payment authorization and wallet discovery to the
   stakeholder UI.
+- Added real Canton Coin allocation and allocation-contract evidence to the
+  stakeholder UI.
 
 ## Next: Complete V2
 
@@ -43,7 +45,7 @@ Date range: 2026-08-20 to 2026-08-27
 1. Completed: add a backend that submits verifier commands without exposing
    participant tokens to the browser.
 2. In progress: extend the role-based workflow UI one ledger transition at a
-   time; `TokenizedPaymentRequest` is now reached.
+   time; the real Canton Coin allocation is now reached.
 3. Demonstrate successful settlement and withdrawn-eligibility failure.
 4. Capture a three-to-five-minute walkthrough.
 

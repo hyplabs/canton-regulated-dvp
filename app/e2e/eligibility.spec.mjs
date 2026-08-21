@@ -95,6 +95,20 @@ const paymentRequest = {
   walletDiscovered: true,
 };
 
+const allocation = {
+  kind: "allocation",
+  contractId: "00allocation1234567890abcdef123456",
+  templateId: "pkg:Splice.Api.Token.AllocationV1:Allocation",
+  status: "active",
+  requestId: paymentRequest.requestId,
+  settlementRefCid: paymentRequest.agreementCid,
+  amount: "10.0",
+  instrumentId: "Amulet",
+  sender: health.roles.investor,
+  receiver: health.roles.provider,
+  settleBefore: paymentRequest.settleBefore,
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -156,7 +170,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("roles advance eligibility through a wallet-discoverable payment request", async ({ page }) => {
+test("roles advance eligibility through a Canton Coin allocation", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -208,6 +222,10 @@ test("roles advance eligibility through a wallet-discoverable payment request", 
       },
     });
   });
+  await page.route("**/api/payment-requests/*/allocate", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({ status: 201, json: allocation });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Issue attestation" }).click();
@@ -250,4 +268,11 @@ test("roles advance eligibility through a wallet-discoverable payment request", 
   await expect(page.getByText("Wallet request ready")).toBeVisible();
   await expect(page.getByText("Active payment request contract", { exact: true })).toBeVisible();
   await expect(page.locator("#contract-fields")).toContainText("Allocation request visible");
+
+  await expect(page.getByRole("button", { name: "Allocate Canton Coin" })).toBeEnabled();
+  await page.getByRole("button", { name: "Allocate Canton Coin" }).click();
+  await expect(page.getByText("Coin allocated")).toBeVisible();
+  await expect(page.getByText("Active Canton Coin allocation contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("10 Amulet");
+  await expect(page.locator("#contract-fields")).toContainText("payment");
 });

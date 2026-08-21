@@ -531,3 +531,113 @@ test("authorizes a tokenized payment across provider, investor, and wallet APIs"
   assert.equal(submissions[2].url, "http://127.0.0.1:2975/v2/commands/submit-and-wait-for-transaction");
   assert.equal(submissions[2].options.headers.Authorization, "Bearer user-token");
 });
+
+test("allocates a wallet-discovered payment request as the investor", async () => {
+  const requestContractId = "00request1234567890";
+  const agreementContractId = "00agreement1234567";
+  const allocationContractId = "00allocation12345678";
+  const terms = {
+    issuer: context.providerParty,
+    investor: context.investorParty,
+    verifier: context.providerParty,
+    custodian: context.providerParty,
+    auditor: context.providerParty,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  };
+  const paymentPayload = {
+    requestId: "regulated-ui-request",
+    terms,
+    agreementCid: agreementContractId,
+    eligibilityAttestationCid: contractId,
+    paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+    requestedAt: "2026-08-21T20:00:00Z",
+    allocateBefore: "2026-08-21T21:00:00Z",
+    settleBefore: "2026-08-21T22:00:00Z",
+  };
+  const standardView = {
+    settlement: {
+      executor: context.providerParty,
+      settlementRef: { id: paymentPayload.requestId, cid: agreementContractId },
+      requestedAt: paymentPayload.requestedAt,
+      allocateBefore: paymentPayload.allocateBefore,
+      settleBefore: paymentPayload.settleBefore,
+      meta: { values: { reason: "purchase-payment" } },
+    },
+    transferLegs: {
+      payment: {
+        sender: context.investorParty,
+        receiver: context.providerParty,
+        amount: "10.0",
+        instrumentId: paymentPayload.paymentInstrumentId,
+        meta: { values: { asset: terms.assetId } },
+      },
+    },
+  };
+  let allocationRequest;
+  const fetchImpl = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (url.endsWith("/v0/wallet/token-standard/allocation-requests")) {
+      return jsonResponse({
+        allocation_requests: [
+          { contract: { contract_id: requestContractId, payload: standardView } },
+        ],
+      });
+    }
+    if (url.endsWith("/v0/allocations")) {
+      allocationRequest = { url, options, body };
+      return jsonResponse({ output: { allocation_cid: allocationContractId } });
+    }
+    if (body.contractId === requestContractId) {
+      return jsonResponse({
+        created: {
+          createdEvent: { contractId: requestContractId, createArgument: paymentPayload },
+        },
+        archived: null,
+      });
+    }
+    assert.equal(body.contractId, allocationContractId);
+    assert.deepEqual(Object.keys(body.eventFormat.filtersByParty), [context.investorParty]);
+    assert.equal(options.headers.Authorization, "Bearer user-token");
+    return jsonResponse({
+      created: {
+        createdEvent: {
+          contractId: allocationContractId,
+          templateId: "pkg:Splice.Api.Token.AllocationV1:Allocation",
+          createArgument: {
+            allocation: {
+              settlement: standardView.settlement,
+              transferLegId: "payment",
+              transferLeg: standardView.transferLegs.payment,
+            },
+          },
+        },
+      },
+      archived: null,
+    });
+  };
+  const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
+
+  const allocation = await client.allocateTokenizedPayment(requestContractId);
+
+  assert.equal(allocation.kind, "allocation");
+  assert.equal(allocation.status, "active");
+  assert.equal(allocation.contractId, allocationContractId);
+  assert.equal(allocation.settlementRefCid, agreementContractId);
+  assert.equal(allocation.amount, "10.0");
+  assert.equal(allocationRequest.options.headers.Authorization, "Bearer wallet-token");
+  assert.equal(allocationRequest.body.settlement.requested_at, 1_787_342_400_000_000);
+  assert.equal(allocationRequest.body.settlement.allocate_before, 1_787_346_000_000_000);
+  assert.deepEqual(allocationRequest.body.settlement.meta, {
+    reason: "purchase-payment",
+    asset: "PC-NOTE-2026-A",
+  });
+  assert.deepEqual(allocationRequest.body.transfer_leg, {
+    receiver: context.providerParty,
+    amount: "10.0",
+    meta: { asset: "PC-NOTE-2026-A" },
+  });
+});

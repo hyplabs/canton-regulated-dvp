@@ -218,6 +218,30 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const allocatePaymentMatch = url.pathname.match(
+        /^\/api\/payment-requests\/([^/]+)\/allocate$/,
+      );
+      if (request.method === "POST" && allocatePaymentMatch) {
+        sendJson(
+          response,
+          201,
+          await cantonClient.allocateTokenizedPayment(
+            decodeURIComponent(allocatePaymentMatch[1]),
+          ),
+        );
+        return;
+      }
+
+      const allocationMatch = url.pathname.match(/^\/api\/allocations\/([^/]+)$/);
+      if (request.method === "GET" && allocationMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getCantonCoinAllocation(decodeURIComponent(allocationMatch[1])),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {

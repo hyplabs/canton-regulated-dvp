@@ -471,3 +471,22 @@ through the standard view rather than by importing or parsing
 `TokenizedPaymentRequest`. The UI checks the wallet API separately after the
 ledger transaction. A delayed wallet response does not undo or hide the already
 committed Daml contract; refresh can confirm discovery later.
+
+## 25. The Wallet Creates A Standard Contract, Not App State
+
+The investor's Allocate action does not exercise a choice on our template. The
+backend reads the `AllocationRequest` standard view and sends its settlement and
+payment leg to the wallet's `/v0/allocations` API. The wallet is responsible for
+selecting and locking funded Canton Coin holdings.
+
+The two APIs use different representations of the same deadlines. The Daml JSON
+view contains ISO-8601 timestamps, while the wallet action expects Unix epoch
+microseconds. The backend performs that typed conversion and preserves Daml
+decimals as strings.
+
+The result is a real Token Standard `Allocation` contract. It has its own
+contract ID and lifecycle, so the UI queries it through the investor's Ledger
+API and displays it separately from `TokenizedPaymentRequest`. At this point the
+coin is reserved, not transferred. The next issuer action must supply the
+registry's choice context and disclosed contracts to execute the allocation
+inside `CompleteTokenizedPayment`.
