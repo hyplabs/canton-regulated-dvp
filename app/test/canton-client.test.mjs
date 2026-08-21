@@ -872,3 +872,76 @@ test("confirms delivery as custodian and returns an archived prepared payment", 
   assert.equal(result.readyToSettle.status, "active");
   assert.equal(result.readyToSettle.deliveryRef, "CUSTODY/PC-2026-001");
 });
+
+test("finalizes the settlement and returns an auditor-visible receipt", async () => {
+  const readyContractId = "00ready12345678901234";
+  const receiptContractId = "00receipt123456789012";
+  const terms = {
+    issuer: context.providerParty,
+    investor: context.investorParty,
+    verifier: context.providerParty,
+    custodian: context.providerParty,
+    auditor: context.providerParty,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  };
+  const readyPayload = {
+    terms,
+    eligibilityAttestationCid: contractId,
+    settleBefore: "2099-08-21T22:00:00Z",
+    paymentRef: "regulated-ui-request",
+    deliveryRef: "CUSTODY/PC-2026-001",
+  };
+  let finalized = false;
+  let submission;
+  const fetchImpl = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (url.endsWith("/v2/commands/submit-and-wait-for-transaction")) {
+      submission = { url, options, body };
+      finalized = true;
+      return jsonResponse({
+        transaction: {
+          events: [
+            {
+              CreatedEvent: {
+                contractId: receiptContractId,
+                templateId: "pkg:Settlement.Regulated:SettlementReceipt",
+              },
+            },
+          ],
+        },
+      });
+    }
+    if (body.contractId === readyContractId) {
+      return jsonResponse({
+        created: { createdEvent: { contractId: readyContractId, createArgument: readyPayload } },
+        archived: finalized ? { archivedEvent: { contractId: readyContractId } } : null,
+      });
+    }
+    assert.equal(body.contractId, receiptContractId);
+    return jsonResponse({
+      created: {
+        createdEvent: {
+          contractId: receiptContractId,
+          createArgument: { ...readyPayload, settledAt: "2026-08-21T20:30:00Z" },
+        },
+      },
+      archived: null,
+    });
+  };
+  const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
+
+  const result = await client.finalizeSettlement(readyContractId);
+
+  const command = submission.body.commands.commands[0].ExerciseCommand;
+  assert.equal(command.choice, "FinalizeSettlement");
+  assert.deepEqual(command.choiceArgument, {});
+  assert.deepEqual(submission.body.commands.actAs, [context.providerParty]);
+  assert.equal(result.readyToSettle.status, "archived");
+  assert.equal(result.settlementReceipt.status, "active");
+  assert.equal(result.settlementReceipt.deliveryRef, "CUSTODY/PC-2026-001");
+  assert.equal(result.settlementReceipt.settledAt, "2026-08-21T20:30:00Z");
+});

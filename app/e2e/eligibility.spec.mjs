@@ -147,6 +147,18 @@ const readyToSettle = {
   deliveryRef: "CUSTODY/PC-2026-001",
 };
 
+const settlementReceipt = {
+  kind: "settlementReceipt",
+  contractId: "00receipt1234567890abcdef12345678",
+  templateId: "pkg:Settlement.Regulated:SettlementReceipt",
+  status: "active",
+  terms: offer.terms,
+  eligibilityAttestationCid: attestation.contractId,
+  paymentRef: paymentRequest.requestId,
+  deliveryRef: readyToSettle.deliveryRef,
+  settledAt: "2026-08-21T20:30:00Z",
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -208,7 +220,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("roles advance payment through custodian delivery evidence", async ({ page }) => {
+test("roles complete the regulated settlement lifecycle", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -288,6 +300,15 @@ test("roles advance payment through custodian delivery evidence", async ({ page 
       },
     });
   });
+  await page.route("**/api/ready-to-settle/*/finalize", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        readyToSettle: { ...readyToSettle, status: "archived" },
+        settlementReceipt,
+      },
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Issue attestation" }).click();
@@ -361,4 +382,18 @@ test("roles advance payment through custodian delivery evidence", async ({ page 
   await expect(page.locator("#contract-fields")).toContainText("CUSTODY/PC-2026-001");
   await page.getByRole("tab", { name: "Prepared" }).click();
   await expect(page.getByText("Archived prepared payment contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Issuer" }).click();
+  await expect(page.getByRole("button", { name: "Finalize settlement" })).toBeEnabled();
+  await page.getByRole("button", { name: "Finalize settlement" }).click();
+  await expect(page.locator("#scenario-status")).toContainText("Settlement complete");
+  await expect(page.getByText("6 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active settlement receipt contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("Aug 21, 2026");
+  await expect(page.locator("#contract-fields")).toContainText("Auditor");
+
+  await page.getByRole("tab", { name: "Ready" }).click();
+  await expect(page.getByText("Archived settlement-ready contract", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Auditor" }).click();
+  await expect(page.getByRole("heading", { name: "Settlement complete" })).toBeVisible();
 });

@@ -21,7 +21,8 @@ payment from that wallet request, and the UI confirms the active standard
 `Allocation` from the investor participant. The issuer then executes that
 allocation with registry-provided disclosures in the same transaction that
 archives the request and agreement and creates `PaymentPrepared`. The custodian
-can bind delivery evidence to create `ReadyToSettle`.
+can bind delivery evidence to create `ReadyToSettle`, and issuer/verifier
+finalization creates the auditor-visible `SettlementReceipt`.
 
 This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
 small allocation implementation, while the LocalNet path uses the real Canton
@@ -142,8 +143,9 @@ npm install
 npm run app
 ```
 
-Open `http://127.0.0.1:4173`. Start as Verifier, then follow the available Issuer
-and Investor actions. The contract inspector retains each state for comparison.
+Open `http://127.0.0.1:4173`. Start as Verifier, then follow the available role
+actions through the final Auditor view. The contract inspector retains each
+state for comparison.
 
 Run the application tests with:
 
@@ -178,7 +180,8 @@ The exact real-registry handoff is in
   provider and app-user submissions, then creates and inspects a real Canton
   Coin allocation and executes it atomically to `PaymentPrepared`; participant
   and wallet credentials remain in the local backend. Custodian delivery is
-  connected through `ReadyToSettle`.
+  connected through `ReadyToSettle`, followed by the final receipt.
 - JDK 21 is provisioned locally for this workspace.
-- Final receipt creation in the UI, a tokenized delivery leg, and broader
-  LocalNet failure coverage remain upcoming V2/V3 work.
+- The role-based V3 browser workflow now reaches all six timeline stages.
+- A tokenized delivery leg and broader LocalNet failure coverage remain
+  upcoming V2 work.

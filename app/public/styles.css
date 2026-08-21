@@ -687,7 +687,7 @@ h2 {
 
 .contract-tabs {
   display: grid;
-  grid-template-columns: repeat(10, minmax(72px, 1fr));
+  grid-template-columns: repeat(11, minmax(72px, 1fr));
   gap: 4px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);

@@ -979,6 +979,57 @@ export class CantonClient {
     };
   }
 
+  async finalizeSettlement(readyToSettleContractId) {
+    validateContractId(readyToSettleContractId);
+    const [context, readyToSettle] = await Promise.all([
+      this.getContext(),
+      this.getReadyToSettle(readyToSettleContractId),
+    ]);
+    if (readyToSettle.status !== "active") {
+      throw new CantonApiError("Settlement is not ready for finalization.", {
+        status: 409,
+        code: "SETTLEMENT_NOT_READY",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: templateId("ReadyToSettle"),
+          contractId: readyToSettleContractId,
+          choice: "FinalizeSettlement",
+          choiceArgument: {},
+        },
+      },
+      commandName: "ui-finalize-settlement",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const created = extractCreatedEvent(transaction, ":Settlement.Regulated:SettlementReceipt");
+    const [archivedReadyToSettle, settlementReceipt] = await Promise.all([
+      this.getReadyToSettle(readyToSettleContractId),
+      this.getSettlementReceipt(created.contractId),
+    ]);
+    return { readyToSettle: archivedReadyToSettle, settlementReceipt };
+  }
+
+  async getSettlementReceipt(contractId) {
+    const contract = await this.getContract(contractId, "settlement receipt");
+    const { created, payload } = contract;
+    return {
+      kind: "settlementReceipt",
+      contractId,
+      templateId: created.templateId ?? templateId("SettlementReceipt"),
+      status: contract.status,
+      terms: payload.terms,
+      eligibilityAttestationCid: payload.eligibilityAttestationCid,
+      paymentRef: payload.paymentRef,
+      deliveryRef: payload.deliveryRef,
+      settledAt: payload.settledAt,
+    };
+  }
+
   async getWalletBalances() {
     const context = await this.getContext();
     const [investor, issuer] = await Promise.all([

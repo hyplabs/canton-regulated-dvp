@@ -36,6 +36,8 @@ Date range: 2026-08-20 to 2026-08-27
 - Added registry-backed atomic payment execution, consumed-contract evidence,
   and wallet balance verification to the stakeholder UI.
 - Added custodian delivery evidence and `ReadyToSettle` to the stakeholder UI.
+- Added final settlement and auditor-visible receipt evidence to complete the
+  six-stage stakeholder UI.
 
 ## Next: Complete V2
 
@@ -43,13 +45,12 @@ Date range: 2026-08-20 to 2026-08-27
 2. Add missing-allocation and expired-allocation runtime tests.
 3. Capture representative LocalNet logs as release evidence.
 
-## In Progress: V3 Presentation Slice
+## V3 Presentation Slice
 
 1. Completed: add a backend that submits verifier commands without exposing
    participant tokens to the browser.
-2. In progress: extend the role-based workflow UI one ledger transition at a
-   time; `ReadyToSettle` is now reached.
-3. Demonstrate successful settlement and withdrawn-eligibility failure.
+2. Completed: extend the role-based workflow UI through `SettlementReceipt`.
+3. Next: demonstrate withdrawn-eligibility failure in the UI.
 4. Capture a three-to-five-minute walkthrough.
 
 ## Exit Criteria

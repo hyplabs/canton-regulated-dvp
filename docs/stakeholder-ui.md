@@ -22,6 +22,8 @@ The current workflow supports:
 11. The inspector retains every contract state and shows the immediate wallet
     balance evidence alongside fresh Ledger API queries.
 12. Custodian records a delivery reference and creates `ReadyToSettle`.
+13. Issuer finalizes settlement after Daml revalidates eligibility and the
+    deadline, creating an auditor-visible `SettlementReceipt`.
 
 Custodian and auditor views remain read-only until their corresponding ledger
 transitions are implemented.
@@ -51,6 +53,8 @@ The browser calls only the local backend:
 - `GET /api/payment-prepared/:contractId`
 - `POST /api/payment-prepared/:contractId/confirm-delivery`
 - `GET /api/ready-to-settle/:contractId`
+- `POST /api/ready-to-settle/:contractId/finalize`
+- `GET /api/receipts/:contractId`
 
 The backend retrieves participant context from the Quickstart onboarding
 container. Issuer and verifier commands use the provider Ledger API on
@@ -85,14 +89,14 @@ JSON encoding, and created/archived event normalization. Playwright verifies
 the role interactions, state progression, contract tabs, and desktop/mobile
 layout.
 
-## Next Extension
+## Next Extensions
 
-Create the final receipt as the next stateful milestone:
+- Add visible negative-path controls for withdrawn or expired eligibility.
+- Preserve selected balance evidence across a backend restart without treating
+  it as ledger state.
+- Replace the delivery evidence reference with a second token-standard
+  allocation when the model advances from payment-versus-workflow to full DvP.
 
-1. Issuer and verifier finalize `ReadyToSettle`.
-2. The UI shows the resulting auditor-visible `SettlementReceipt`.
-3. The completed timeline retains every archived intermediate contract.
-
-Continue this pattern for each transition. Every visible state change must come
+Every visible state change must continue to come
 from a transaction response or a fresh contract query; the frontend must not
 advance the timeline optimistically.

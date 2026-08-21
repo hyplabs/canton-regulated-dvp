@@ -15,6 +15,7 @@ const state = {
     allocation: null,
     paymentPrepared: null,
     readyToSettle: null,
+    settlementReceipt: null,
   },
   selectedKind: null,
   busy: false,
@@ -59,12 +60,14 @@ const elements = {
   approveCompliancePanel: document.querySelector("#approve-compliance-panel"),
   paymentAuthorizationPanel: document.querySelector("#payment-authorization-panel"),
   deliveryConfirmationPanel: document.querySelector("#delivery-confirmation-panel"),
+  finalizationPanel: document.querySelector("#finalization-panel"),
   issueButton: document.querySelector("#issue-button"),
   createOfferButton: document.querySelector("#create-offer-button"),
   acceptOfferButton: document.querySelector("#accept-offer-button"),
   approveComplianceButton: document.querySelector("#approve-compliance-button"),
   paymentActionButton: document.querySelector("#payment-action-button"),
   confirmDeliveryButton: document.querySelector("#confirm-delivery-button"),
+  finalizeSettlementButton: document.querySelector("#finalize-settlement-button"),
   roleEmptyState: document.querySelector("#role-empty-state"),
   emptyStateCopy: document.querySelector("#empty-state-copy"),
   roleName: document.querySelector("#role-name"),
@@ -73,6 +76,7 @@ const elements = {
   actionSummary: document.querySelector("#action-summary"),
   scenarioStatus: document.querySelector("#scenario-status"),
   timelineCount: document.querySelector("#timeline-count"),
+  timeline: document.querySelector(".timeline"),
   eligibilityStep: document.querySelector('[data-stage="eligibility"]'),
   offerStep: document.querySelector('[data-stage="offer"]'),
   complianceStep: document.querySelector('[data-stage="compliance"]'),
@@ -135,6 +139,7 @@ function showToast(message, tone = "success") {
 }
 
 function phase() {
+  if (state.contracts.settlementReceipt?.status === "active") return "settlementReceipt";
   if (state.contracts.readyToSettle?.status === "active") return "readyToSettle";
   if (state.contracts.paymentPrepared?.status === "active") return "paymentPrepared";
   if (state.contracts.allocation?.status === "active") return "allocation";
@@ -160,6 +165,7 @@ function currentAction() {
   if (currentPhase === "paymentRequest" && state.role === "investor") return "allocate-payment";
   if (currentPhase === "allocation" && state.role === "issuer") return "complete-payment";
   if (currentPhase === "paymentPrepared" && state.role === "custodian") return "confirm-delivery";
+  if (currentPhase === "readyToSettle" && state.role === "issuer") return "finalize-settlement";
   return null;
 }
 
@@ -195,6 +201,7 @@ function setBusy(busy) {
       "complete-payment",
     ].includes(action);
   elements.confirmDeliveryButton.disabled = !enabled || action !== "confirm-delivery";
+  elements.finalizeSettlementButton.disabled = !enabled || action !== "finalize-settlement";
   elements.refreshButton.disabled = busy || !state.selectedKind;
 
   elements.issueButton.innerHTML = busy && action === "attestation"
@@ -222,6 +229,9 @@ function setBusy(busy) {
   elements.confirmDeliveryButton.innerHTML = busy && action === "confirm-delivery"
     ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
     : '<i data-lucide="package-check"></i><span>Confirm delivery</span>';
+  elements.finalizeSettlementButton.innerHTML = busy && action === "finalize-settlement"
+    ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
+    : '<i data-lucide="receipt-text"></i><span>Finalize settlement</span>';
   refreshIcons();
 }
 
@@ -252,6 +262,7 @@ function emptyStateMessage() {
   if (currentPhase === "allocation") return "Select Issuer to execute the allocated payment.";
   if (currentPhase === "paymentPrepared") return "Select Custodian to continue with delivery.";
   if (currentPhase === "readyToSettle") return "Select Issuer to finalize the settlement receipt.";
+  if (currentPhase === "settlementReceipt") return "The auditor can inspect the final receipt.";
   return "No action is available in the current state.";
 }
 
@@ -307,6 +318,10 @@ function renderRole() {
       title: "Confirm delivery evidence",
       summary: "Bind the custodian's delivery reference to this paid transaction.",
     },
+    "finalize-settlement": {
+      title: "Finalize settlement",
+      summary: "Recheck eligibility and create the auditor-visible receipt.",
+    },
   }[action];
   const idlePhaseCopy = {
     agreement: {
@@ -337,6 +352,10 @@ function renderRole() {
       title: "Settlement ready",
       summary: "Payment and delivery evidence are ready for final authorization.",
     },
+    settlementReceipt: {
+      title: "Settlement complete",
+      summary: "The final receipt is active and visible to the settlement auditor.",
+    },
   }[phase()];
   elements.actionTitle.textContent = actionCopy?.title ?? idlePhaseCopy?.title ?? content.title;
   elements.actionSummary.textContent = actionCopy?.summary ?? idlePhaseCopy?.summary ?? content.summary;
@@ -354,6 +373,7 @@ function renderRole() {
       "complete-payment",
     ].includes(action);
   elements.deliveryConfirmationPanel.hidden = action !== "confirm-delivery";
+  elements.finalizationPanel.hidden = action !== "finalize-settlement";
   elements.roleEmptyState.hidden = Boolean(action);
   elements.emptyStateCopy.textContent = emptyStateMessage();
 
@@ -408,6 +428,13 @@ function renderRole() {
     document.querySelector("#delivery-action-payment").textContent =
       `${formatDecimal(prepared.terms.paymentAmount)} ${prepared.terms.paymentInstrumentId}`;
   }
+  if (action === "finalize-settlement") {
+    const ready = state.contracts.readyToSettle;
+    document.querySelector("#finalize-action-asset").textContent = ready.terms.assetId;
+    document.querySelector("#finalize-action-payment-ref").textContent = ready.paymentRef;
+    document.querySelector("#finalize-action-delivery-ref").textContent = ready.deliveryRef;
+    document.querySelector("#finalize-action-deadline").textContent = formatDate(ready.settleBefore);
+  }
 
   setBusy(state.busy);
   refreshIcons();
@@ -430,6 +457,7 @@ function renderTimeline() {
     allocation,
     paymentPrepared,
     readyToSettle,
+    settlementReceipt,
   } = state.contracts;
   if (attestation) {
     setTimelineStep(
@@ -445,7 +473,7 @@ function renderTimeline() {
   if (agreement) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-complete", "Approved");
-    const paymentLabel = paymentPrepared || readyToSettle
+    const paymentLabel = paymentPrepared || readyToSettle || settlementReceipt
       ? "Transferred"
       : allocation
         ? "Allocated"
@@ -459,20 +487,20 @@ function renderTimeline() {
     setTimelineStep(
       elements.paymentStep,
       elements.paymentStepLabel,
-      paymentPrepared || readyToSettle ? "is-complete" : "is-current",
+      paymentPrepared || readyToSettle || settlementReceipt ? "is-complete" : "is-current",
       paymentLabel,
     );
     setTimelineStep(
       elements.deliveryStep,
       elements.deliveryStepLabel,
-      readyToSettle ? "is-complete" : paymentPrepared ? "is-current" : "",
-      readyToSettle ? "Confirmed" : paymentPrepared ? "Pending" : "Locked",
+      readyToSettle || settlementReceipt ? "is-complete" : paymentPrepared ? "is-current" : "",
+      readyToSettle || settlementReceipt ? "Confirmed" : paymentPrepared ? "Pending" : "Locked",
     );
     setTimelineStep(
       elements.receiptStep,
       elements.receiptStepLabel,
-      readyToSettle ? "is-current" : "",
-      readyToSettle ? "Pending" : "Locked",
+      settlementReceipt ? "is-complete" : readyToSettle ? "is-current" : "",
+      settlementReceipt ? "Settled" : readyToSettle ? "Pending" : "Locked",
     );
   } else if (compliance) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
@@ -499,7 +527,12 @@ function renderTimeline() {
     setTimelineStep(elements.receiptStep, elements.receiptStepLabel, "", "Locked");
   }
 
-  if (readyToSettle) {
+  if (settlementReceipt) {
+    elements.timelineCount.textContent = "6 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status active";
+    elements.scenarioStatus.innerHTML =
+      '<i data-lucide="receipt-text"></i><span>Settlement complete</span>';
+  } else if (readyToSettle) {
     elements.timelineCount.textContent = "5 of 6 complete";
     elements.scenarioStatus.className = "scenario-status active";
     elements.scenarioStatus.innerHTML =
@@ -555,6 +588,22 @@ function renderTimeline() {
     elements.scenarioStatus.innerHTML =
       '<i data-lucide="circle-dashed"></i><span>Awaiting eligibility</span>';
   }
+  const focusStep = settlementReceipt
+    ? elements.receiptStep
+    : readyToSettle || paymentPrepared
+      ? elements.deliveryStep
+      : paymentRequest || approvedPayment || paymentProposal || allocation
+        ? elements.paymentStep
+        : agreement || compliance
+          ? elements.complianceStep
+          : offer
+            ? elements.offerStep
+            : elements.eligibilityStep;
+  const focusLeft = focusStep.offsetLeft - elements.timeline.offsetLeft;
+  elements.timeline.scrollLeft = Math.max(
+    0,
+    focusLeft - elements.timeline.clientWidth + focusStep.offsetWidth,
+  );
   refreshIcons();
 }
 
@@ -608,10 +657,18 @@ function renderContractFields(contract) {
   if (contract.kind === "offer") {
     addContractField("Offer expires", formatDate(contract.offerExpiresAt));
   }
-  addContractField("Settle before", formatDate(contract.settleBefore));
+  if (contract.kind === "settlementReceipt") {
+    addContractField("Settled at", formatDate(contract.settledAt));
+  } else {
+    addContractField("Settle before", formatDate(contract.settleBefore));
+  }
   addContractField("Issuer", shortParty(contract.terms.issuer), { code: true });
   addContractField("Investor", shortParty(contract.terms.investor), { code: true });
-  if (["compliance", "agreement", "paymentPrepared", "readyToSettle"].includes(contract.kind)) {
+  if (
+    ["compliance", "agreement", "paymentPrepared", "readyToSettle", "settlementReceipt"].includes(
+      contract.kind,
+    )
+  ) {
     addContractField("Eligibility CID", shortContractId(contract.eligibilityAttestationCid), {
       code: true,
     });
@@ -628,10 +685,13 @@ function renderContractFields(contract) {
       );
     }
   }
-  if (["paymentPrepared", "readyToSettle"].includes(contract.kind)) {
+  if (["paymentPrepared", "readyToSettle", "settlementReceipt"].includes(contract.kind)) {
     addContractField("Payment reference", contract.paymentRef, { code: true });
-    if (contract.kind === "readyToSettle") {
+    if (["readyToSettle", "settlementReceipt"].includes(contract.kind)) {
       addContractField("Delivery reference", contract.deliveryRef, { code: true });
+    }
+    if (contract.kind === "settlementReceipt") {
+      addContractField("Auditor", shortParty(contract.terms.auditor), { code: true });
     }
     if (contract.kind === "paymentPrepared" && contract.balanceEvidence) {
       const { before, after, verified, available = true } = contract.balanceEvidence;
@@ -705,6 +765,7 @@ function renderInspector() {
     allocation: "Canton Coin allocation",
     paymentPrepared: "prepared payment",
     readyToSettle: "settlement-ready",
+    settlementReceipt: "settlement receipt",
   }[contract.kind] ?? contract.kind;
   document.querySelector("#contract-status").textContent =
     `${active ? "Active" : "Archived"} ${kindLabel} contract`;
@@ -761,6 +822,7 @@ const contractPaths = {
   allocation: (id) => `/api/allocations/${encodeURIComponent(id)}`,
   paymentPrepared: (id) => `/api/payment-prepared/${encodeURIComponent(id)}`,
   readyToSettle: (id) => `/api/ready-to-settle/${encodeURIComponent(id)}`,
+  settlementReceipt: (id) => `/api/receipts/${encodeURIComponent(id)}`,
 };
 
 async function refreshScenario({ quiet = false } = {}) {
@@ -800,6 +862,7 @@ elements.attestationForm.addEventListener("submit", async (event) => {
       allocation: null,
       paymentPrepared: null,
       readyToSettle: null,
+      settlementReceipt: null,
     };
     state.selectedKind = "attestation";
     persistScenario();
@@ -859,6 +922,7 @@ elements.acceptOfferButton.addEventListener("click", async () => {
     state.contracts.allocation = null;
     state.contracts.paymentPrepared = null;
     state.contracts.readyToSettle = null;
+    state.contracts.settlementReceipt = null;
     state.selectedKind = "compliance";
     persistScenario();
     renderAll();
@@ -885,6 +949,7 @@ elements.approveComplianceButton.addEventListener("click", async () => {
     state.contracts.allocation = null;
     state.contracts.paymentPrepared = null;
     state.contracts.readyToSettle = null;
+    state.contracts.settlementReceipt = null;
     state.selectedKind = "agreement";
     persistScenario();
     renderAll();
@@ -952,6 +1017,7 @@ elements.paymentActionButton.addEventListener("click", async () => {
       state.contracts.allocation = result.allocation;
       state.contracts.paymentPrepared = result.paymentPrepared;
       state.contracts.readyToSettle = null;
+      state.contracts.settlementReceipt = null;
       state.selectedKind = "paymentPrepared";
       showToast(
         result.paymentPrepared.balanceEvidence?.verified
@@ -982,10 +1048,31 @@ elements.confirmDeliveryButton.addEventListener("click", async () => {
     );
     state.contracts.paymentPrepared = result.paymentPrepared;
     state.contracts.readyToSettle = result.readyToSettle;
+    state.contracts.settlementReceipt = null;
     state.selectedKind = "readyToSettle";
     persistScenario();
     renderAll();
     showToast("Custodian delivery evidence committed to Canton.");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
+elements.finalizeSettlementButton.addEventListener("click", async () => {
+  setBusy(true);
+  try {
+    const result = await api(
+      `/api/ready-to-settle/${encodeURIComponent(state.contracts.readyToSettle.contractId)}/finalize`,
+      { method: "POST" },
+    );
+    state.contracts.readyToSettle = result.readyToSettle;
+    state.contracts.settlementReceipt = result.settlementReceipt;
+    state.selectedKind = "settlementReceipt";
+    persistScenario();
+    renderAll();
+    showToast("Final settlement receipt committed to Canton.");
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -1021,6 +1108,7 @@ elements.resetButton.addEventListener("click", () => {
     allocation: null,
     paymentPrepared: null,
     readyToSettle: null,
+    settlementReceipt: null,
   };
   state.selectedKind = null;
   persistScenario();

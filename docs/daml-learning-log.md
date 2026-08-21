@@ -525,3 +525,20 @@ scope honest: Canton Coin is real, while note delivery is represented by the
 custodian's external-system reference. The UI asks the custodian for that value
 and then re-queries both contracts, so the 5-of-6 timeline state comes from the
 ledger transition rather than from the input field.
+
+## 28. Finalization Revalidates Current Truth
+
+`ReadyToSettle` already contains payment and delivery references, but that does
+not make finalization automatic. `FinalizeSettlement` fetches the referenced
+eligibility attestation again and checks the current time against both the
+attestation expiry and settlement deadline.
+
+The choice is controlled by issuer and verifier. In minimal LocalNet those
+roles share the provider party, while the five-party Daml tests keep them
+distinct. The resulting `SettlementReceipt` retains issuer, investor, verifier,
+and custodian as signatories and adds the auditor as an observer.
+
+This is why the browser can show a completed six-stage timeline without
+becoming the source of truth. It submits the choice, queries the archived
+`ReadyToSettle`, and queries the active receipt. The settled timestamp is
+assigned by Daml with `getTime`, not by the browser clock.

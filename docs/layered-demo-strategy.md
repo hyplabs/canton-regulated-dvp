@@ -48,17 +48,18 @@ business-state transition.
 
 Goal: explain the workflow in three to five minutes without weakening the proof.
 
-Status: the workflow through `ReadyToSettle` is connected. The browser
+Status: complete through `SettlementReceipt`. The browser
 creates an eligibility attestation and asset offer, then accepts the offer
 through the investor participant and approves compliance through the verifier
 to reach the purchase agreement. Issuer, verifier, and investor authorize a
 standard payment request, the investor wallet reserves real Canton Coin, and
 the issuer executes the transfer atomically with workflow advancement.
-The custodian then binds an explicit delivery reference.
+The custodian then binds an explicit delivery reference, and finalization
+creates the auditor-visible receipt.
 
 - Completed: role switcher for issuer, investor, verifier, custodian, and auditor.
-- In progress: timeline reflecting the exact on-ledger state through
-  `ReadyToSettle`; final receipt creation is next.
+- Completed: timeline reflecting the exact on-ledger state through all six
+  workflow stages and retaining archived intermediate contracts.
 - Commands enabled only for the current role and active contract.
 - Visible failure for withdrawn or expired eligibility.
 - Auditor view limited to the final receipt.

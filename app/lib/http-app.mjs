@@ -292,6 +292,28 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const finalizeSettlementMatch = url.pathname.match(
+        /^\/api\/ready-to-settle\/([^/]+)\/finalize$/,
+      );
+      if (request.method === "POST" && finalizeSettlementMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.finalizeSettlement(decodeURIComponent(finalizeSettlementMatch[1])),
+        );
+        return;
+      }
+
+      const settlementReceiptMatch = url.pathname.match(/^\/api\/receipts\/([^/]+)$/);
+      if (request.method === "GET" && settlementReceiptMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getSettlementReceipt(decodeURIComponent(settlementReceiptMatch[1])),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {

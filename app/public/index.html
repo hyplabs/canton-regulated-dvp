@@ -221,6 +221,18 @@
             </button>
           </div>
 
+          <div id="finalization-panel" class="action-confirmation" hidden>
+            <dl>
+              <div><dt>Asset</dt><dd id="finalize-action-asset"></dd></div>
+              <div><dt>Payment ref</dt><dd id="finalize-action-payment-ref"></dd></div>
+              <div><dt>Delivery ref</dt><dd id="finalize-action-delivery-ref"></dd></div>
+              <div><dt>Settle before</dt><dd id="finalize-action-deadline"></dd></div>
+            </dl>
+            <button id="finalize-settlement-button" class="primary-button" type="button" disabled>
+              <i data-lucide="receipt-text"></i><span>Finalize settlement</span>
+            </button>
+          </div>
+
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -251,6 +263,7 @@
           <button type="button" role="tab" data-contract-kind="allocation" disabled>Allocation</button>
           <button type="button" role="tab" data-contract-kind="paymentPrepared" disabled>Prepared</button>
           <button type="button" role="tab" data-contract-kind="readyToSettle" disabled>Ready</button>
+          <button type="button" role="tab" data-contract-kind="settlementReceipt" disabled>Receipt</button>
         </div>
 
         <div id="inspector-empty" class="inspector-empty">
