@@ -109,6 +109,32 @@ const allocation = {
   settleBefore: paymentRequest.settleBefore,
 };
 
+const paymentPrepared = {
+  kind: "paymentPrepared",
+  contractId: "00prepared1234567890abcdef12345678",
+  templateId: "pkg:Settlement.Regulated:PaymentPrepared",
+  status: "active",
+  terms: offer.terms,
+  eligibilityAttestationCid: attestation.contractId,
+  settleBefore: paymentRequest.settleBefore,
+  paymentRef: paymentRequest.requestId,
+  balanceEvidence: {
+    amount: "10.0",
+    instrumentId: "Amulet",
+    before: {
+      investor: { unlocked: "90.0", locked: "10.0" },
+      issuer: { unlocked: "50.0", locked: "0.0" },
+    },
+    after: {
+      investor: { unlocked: "90.0", locked: "0.0" },
+      issuer: { unlocked: "60.0", locked: "0.0" },
+    },
+    investorLockedReleased: "10",
+    issuerReceived: "10",
+    verified: true,
+  },
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -170,7 +196,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("roles advance eligibility through a Canton Coin allocation", async ({ page }) => {
+test("roles advance eligibility through atomic Canton Coin payment", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -226,6 +252,19 @@ test("roles advance eligibility through a Canton Coin allocation", async ({ page
     expect(route.request().method()).toBe("POST");
     await route.fulfill({ status: 201, json: allocation });
   });
+  await page.route("**/api/payment-requests/*/complete", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      allocationContractId: allocation.contractId,
+    });
+    await route.fulfill({
+      json: {
+        paymentRequest: { ...paymentRequest, status: "archived" },
+        purchaseAgreement: { ...purchaseAgreement, status: "archived" },
+        allocation: { ...allocation, status: "archived" },
+        paymentPrepared,
+      },
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Issue attestation" }).click();
@@ -275,4 +314,18 @@ test("roles advance eligibility through a Canton Coin allocation", async ({ page
   await expect(page.getByText("Active Canton Coin allocation contract", { exact: true })).toBeVisible();
   await expect(page.locator("#contract-fields")).toContainText("10 Amulet");
   await expect(page.locator("#contract-fields")).toContainText("payment");
+
+  await page.getByRole("button", { name: "Issuer" }).click();
+  await expect(page.getByRole("button", { name: "Execute atomic payment" })).toBeEnabled();
+  await page.getByRole("button", { name: "Execute atomic payment" }).click();
+  await expect(page.locator("#scenario-status")).toContainText("Payment prepared");
+  await expect(page.getByText("4 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active prepared payment contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("Exact transfer confirmed");
+  await expect(page.locator("#contract-fields")).toContainText("50 -> 60 Amulet");
+
+  await page.getByRole("tab", { name: "Allocation" }).click();
+  await expect(page.getByText("Archived Canton Coin allocation contract", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Request" }).click();
+  await expect(page.getByText("Archived payment request contract", { exact: true })).toBeVisible();
 });

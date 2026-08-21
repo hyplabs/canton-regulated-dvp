@@ -18,7 +18,9 @@ verifier can approve that review to create the jointly signed
 token-standard payment request, which the standard wallet discovers without
 app-specific parsing. The investor can now allocate the exact Canton Coin
 payment from that wallet request, and the UI confirms the active standard
-`Allocation` from the investor participant.
+`Allocation` from the investor participant. The issuer then executes that
+allocation with registry-provided disclosures in the same transaction that
+archives the request and agreement and creates `PaymentPrepared`.
 
 This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
 small allocation implementation, while the LocalNet path uses the real Canton
@@ -173,9 +175,8 @@ The exact real-registry handoff is in
   of an investor's unauthorized settlement attempt.
 - The V3 UI reaches a wallet-discoverable `TokenizedPaymentRequest` through real
   provider and app-user submissions, then creates and inspects a real Canton
-  Coin allocation; participant and wallet credentials remain in the local
-  backend.
+  Coin allocation and executes it atomically to `PaymentPrepared`; participant
+  and wallet credentials remain in the local backend.
 - JDK 21 is provisioned locally for this workspace.
-- Atomic payment execution in the UI, a tokenized delivery leg, broader
-  LocalNet failure coverage, and the remaining stakeholder workflow actions
-  remain upcoming V2/V3 work.
+- Custodian delivery and receipt actions in the UI, a tokenized delivery leg,
+  and broader LocalNet failure coverage remain upcoming V2/V3 work.

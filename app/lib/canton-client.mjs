@@ -15,16 +15,28 @@ source /app/utils.sh
 source /app/app-provider-auth.sh 2>/dev/null
 provider_token=$APP_PROVIDER_PARTICIPANT_ADMIN_TOKEN
 provider_party=$APP_PROVIDER_PARTY
+provider_wallet_token=$(generate_jwt \
+  "$AUTH_APP_PROVIDER_WALLET_ADMIN_USER_NAME" "$AUTH_APP_PROVIDER_AUDIENCE")
 source /app/app-user-auth.sh 2>/dev/null
 jq -nc \
   --arg providerToken "$provider_token" \
+  --arg providerWalletToken "$provider_wallet_token" \
   --arg userToken "$APP_USER_PARTICIPANT_ADMIN_TOKEN" \
   --arg userWalletToken "$APP_USER_WALLET_ADMIN_TOKEN" \
   --arg providerParty "$provider_party" \
   --arg investorParty "$APP_USER_PARTY" \
   --arg dsoParty "$DSO_PARTY" \
-  '{providerToken:$providerToken,userToken:$userToken,userWalletToken:$userWalletToken,
+  '{providerToken:$providerToken,providerWalletToken:$providerWalletToken,
+    userToken:$userToken,userWalletToken:$userWalletToken,
     providerParty:$providerParty,investorParty:$investorParty,dsoParty:$dsoParty}'
+`;
+
+const REGISTRY_CONTEXT_SCRIPT = String.raw`
+set -eo pipefail
+curl -fsS -X POST \
+  "http://splice:5012/registry/allocations/v1/$ALLOCATION_CID/choice-contexts/execute-transfer" \
+  -H 'Content-Type: application/json' \
+  --data-raw '{"meta":{}}'
 `;
 
 export class CantonApiError extends Error {
@@ -170,23 +182,97 @@ export async function loadLocalNetContext() {
   }
 }
 
+export async function loadLocalNetRegistryContext(allocationContractId) {
+  validateContractId(allocationContractId);
+  try {
+    const { stdout } = await execFileAsync(
+      "docker",
+      [
+        "exec",
+        "-e",
+        `ALLOCATION_CID=${allocationContractId}`,
+        "splice-onboarding",
+        "bash",
+        "-lc",
+        REGISTRY_CONTEXT_SCRIPT,
+      ],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return JSON.parse(stdout.trim());
+  } catch (error) {
+    throw new CantonApiError("The Canton Coin registry context is unavailable.", {
+      code: "REGISTRY_CONTEXT_UNAVAILABLE",
+      details: error.message,
+    });
+  }
+}
+
 function normalizeCreatedEvent(created) {
   return created?.createdEvent ?? created?.CreatedEvent ?? created;
+}
+
+function decimalUnits(value) {
+  const match = String(value ?? "").match(/^(-?)(\d+)(?:\.(\d{1,10}))?$/);
+  if (!match) return null;
+  const units = BigInt(match[2]) * 10_000_000_000n + BigInt((match[3] ?? "").padEnd(10, "0"));
+  return match[1] ? -units : units;
+}
+
+function formatDecimalUnits(units) {
+  const negative = units < 0n;
+  const absolute = negative ? -units : units;
+  const whole = absolute / 10_000_000_000n;
+  const fraction = String(absolute % 10_000_000_000n).padStart(10, "0").replace(/0+$/, "");
+  return `${negative ? "-" : ""}${whole}${fraction ? `.${fraction}` : ""}`;
+}
+
+function balanceEvidence(before, after, amount) {
+  const amountUnits = decimalUnits(amount);
+  const investorLockedBefore = decimalUnits(before.investor.locked);
+  const investorLockedAfter = decimalUnits(after.investor.locked);
+  const issuerUnlockedBefore = decimalUnits(before.issuer.unlocked);
+  const issuerUnlockedAfter = decimalUnits(after.issuer.unlocked);
+  const values = [
+    amountUnits,
+    investorLockedBefore,
+    investorLockedAfter,
+    issuerUnlockedBefore,
+    issuerUnlockedAfter,
+  ];
+  if (values.some((value) => value === null)) {
+    return { amount, instrumentId: "Amulet", before, after, verified: false };
+  }
+  const investorReleased = investorLockedBefore - investorLockedAfter;
+  const issuerReceived = issuerUnlockedAfter - issuerUnlockedBefore;
+  return {
+    amount,
+    instrumentId: "Amulet",
+    before,
+    after,
+    investorLockedReleased: formatDecimalUnits(investorReleased),
+    issuerReceived: formatDecimalUnits(issuerReceived),
+    verified: investorReleased === amountUnits && issuerReceived === amountUnits,
+  };
 }
 
 export class CantonClient {
   constructor({
     fetchImpl = globalThis.fetch,
     contextLoader = loadLocalNetContext,
+    registryContextLoader = loadLocalNetRegistryContext,
     providerLedgerUrl = process.env.CANTON_PROVIDER_LEDGER_URL ?? "http://127.0.0.1:3975",
     userLedgerUrl = process.env.CANTON_USER_LEDGER_URL ?? "http://127.0.0.1:2975",
+    providerValidatorUrl = process.env.CANTON_PROVIDER_VALIDATOR_URL ??
+      "http://127.0.0.1:3903/api/validator",
     userValidatorUrl = process.env.CANTON_USER_VALIDATOR_URL ??
       "http://127.0.0.1:2903/api/validator",
   } = {}) {
     this.fetch = fetchImpl;
     this.contextLoader = contextLoader;
+    this.registryContextLoader = registryContextLoader;
     this.providerLedgerUrl = providerLedgerUrl.replace(/\/$/, "");
     this.userLedgerUrl = userLedgerUrl.replace(/\/$/, "");
+    this.providerValidatorUrl = providerValidatorUrl.replace(/\/$/, "");
     this.userValidatorUrl = userValidatorUrl.replace(/\/$/, "");
     this.context = null;
   }
@@ -712,6 +798,165 @@ export class CantonClient {
     });
   }
 
+  async completeTokenizedPayment(requestContractId, input = {}) {
+    validateContractId(requestContractId);
+    const allocationContractId = validateContractId(input.allocationContractId);
+    const [context, paymentRequest, allocation, balancesBefore] = await Promise.all([
+      this.getContext(),
+      this.getTokenizedPaymentRequest(requestContractId),
+      this.getCantonCoinAllocation(allocationContractId),
+      this.getWalletBalances().catch(() => null),
+    ]);
+    if (paymentRequest.status !== "active") {
+      throw new CantonApiError("Tokenized payment request is not active.", {
+        status: 409,
+        code: "PAYMENT_REQUEST_INACTIVE",
+      });
+    }
+    if (allocation.status !== "active") {
+      throw new CantonApiError("Canton Coin allocation is not active.", {
+        status: 409,
+        code: "ALLOCATION_INACTIVE",
+      });
+    }
+    if (allocation.requestId && allocation.requestId !== paymentRequest.requestId) {
+      throw new CantonApiError("The allocation belongs to a different settlement request.", {
+        status: 409,
+        code: "ALLOCATION_REQUEST_MISMATCH",
+      });
+    }
+
+    const registryContext = await this.registryContextLoader(allocationContractId);
+    if (
+      !registryContext?.choiceContextData ||
+      !Array.isArray(registryContext.disclosedContracts)
+    ) {
+      throw new CantonApiError("The Canton Coin registry returned an invalid choice context.", {
+        code: "INVALID_REGISTRY_CONTEXT",
+      });
+    }
+    const disclosedContracts = registryContext.disclosedContracts.map((contract) => ({
+      templateId: contract.templateId,
+      contractId: contract.contractId,
+      createdEventBlob: contract.createdEventBlob,
+      synchronizerId: contract.synchronizerId,
+    }));
+    if (
+      disclosedContracts.some(
+        (contract) =>
+          !contract.templateId ||
+          !contract.contractId ||
+          !contract.createdEventBlob ||
+          !contract.synchronizerId,
+      )
+    ) {
+      throw new CantonApiError("The registry choice context has incomplete disclosures.", {
+        code: "INVALID_REGISTRY_CONTEXT",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: tokenizedTemplateId("TokenizedPaymentRequest"),
+          contractId: requestContractId,
+          choice: "CompleteTokenizedPayment",
+          choiceArgument: {
+            allocationCid: allocationContractId,
+            extraArgs: {
+              context: registryContext.choiceContextData,
+              meta: { values: {} },
+            },
+          },
+        },
+      },
+      commandName: "ui-complete-tokenized-payment",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+      disclosedContracts,
+    });
+    const created = extractCreatedEvent(transaction, ":Settlement.Regulated:PaymentPrepared");
+    const [archivedRequest, archivedAgreement, archivedAllocation, paymentPrepared] =
+      await Promise.all([
+        this.getTokenizedPaymentRequest(requestContractId),
+        this.getPurchaseAgreement(paymentRequest.agreementCid),
+        this.getCantonCoinAllocation(allocationContractId),
+        this.getPaymentPrepared(created.contractId),
+      ]);
+    const balances = balancesBefore
+      ? await this.waitForBalanceEvidence(balancesBefore, paymentRequest.terms.paymentAmount)
+      : {
+          amount: paymentRequest.terms.paymentAmount,
+          instrumentId: paymentRequest.terms.paymentInstrumentId,
+          verified: false,
+          available: false,
+        };
+
+    return {
+      paymentRequest: archivedRequest,
+      purchaseAgreement: archivedAgreement,
+      allocation: archivedAllocation,
+      paymentPrepared: { ...paymentPrepared, balanceEvidence: balances },
+    };
+  }
+
+  async getPaymentPrepared(contractId) {
+    const contract = await this.getContract(contractId, "prepared payment");
+    const { created, payload } = contract;
+    return {
+      kind: "paymentPrepared",
+      contractId,
+      templateId: created.templateId ?? templateId("PaymentPrepared"),
+      status: contract.status,
+      terms: payload.terms,
+      eligibilityAttestationCid: payload.eligibilityAttestationCid,
+      settleBefore: payload.settleBefore,
+      paymentRef: payload.paymentRef,
+    };
+  }
+
+  async getWalletBalances() {
+    const context = await this.getContext();
+    const [investor, issuer] = await Promise.all([
+      this.request(
+        "GET",
+        "/v0/wallet/balance",
+        undefined,
+        context.userWalletToken,
+        this.userValidatorUrl,
+      ),
+      this.request(
+        "GET",
+        "/v0/wallet/balance",
+        undefined,
+        context.providerWalletToken,
+        this.providerValidatorUrl,
+      ),
+    ]);
+    const normalize = (balance) => ({
+      round: balance.round,
+      unlocked: balance.effective_unlocked_qty,
+      locked: balance.effective_locked_qty,
+      holdingFees: balance.total_holding_fees,
+    });
+    return { investor: normalize(investor), issuer: normalize(issuer) };
+  }
+
+  async waitForBalanceEvidence(before, amount) {
+    let evidence;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      try {
+        evidence = { ...balanceEvidence(before, await this.getWalletBalances(), amount), available: true };
+        if (evidence.verified) return evidence;
+      } catch {
+        evidence = { amount, instrumentId: "Amulet", verified: false, available: false };
+      }
+      if (attempt < 9) await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return evidence;
+  }
+
   async getPaymentAuthorizationContract(contractId, kind, template, label) {
     const contract = await this.getContract(contractId, label);
     const { created, payload } = contract;
@@ -800,7 +1045,14 @@ export class CantonClient {
     };
   }
 
-  async submitCommand({ command, commandName, actor, token, ledgerUrl }) {
+  async submitCommand({
+    command,
+    commandName,
+    actor,
+    token,
+    ledgerUrl,
+    disclosedContracts = [],
+  }) {
     return this.request(
       "POST",
       "/v2/commands/submit-and-wait-for-transaction",
@@ -811,7 +1063,7 @@ export class CantonClient {
           actAs: [actor],
           readAs: [actor],
           deduplicationPeriod: { Empty: {} },
-          disclosedContracts: [],
+          disclosedContracts,
         },
       },
       token,

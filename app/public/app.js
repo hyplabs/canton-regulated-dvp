@@ -13,6 +13,7 @@ const state = {
     approvedPayment: null,
     paymentRequest: null,
     allocation: null,
+    paymentPrepared: null,
   },
   selectedKind: null,
   busy: false,
@@ -73,10 +74,12 @@ const elements = {
   offerStep: document.querySelector('[data-stage="offer"]'),
   complianceStep: document.querySelector('[data-stage="compliance"]'),
   paymentStep: document.querySelector('[data-stage="payment"]'),
+  deliveryStep: document.querySelector('[data-stage="delivery"]'),
   eligibilityStepLabel: document.querySelector("#eligibility-step-label"),
   offerStepLabel: document.querySelector("#offer-step-label"),
   complianceStepLabel: document.querySelector("#compliance-step-label"),
   paymentStepLabel: document.querySelector("#payment-step-label"),
+  deliveryStepLabel: document.querySelector("#delivery-step-label"),
   inspectorEmpty: document.querySelector("#inspector-empty"),
   contractDetails: document.querySelector("#contract-details"),
   contractTabs: document.querySelector("#contract-tabs"),
@@ -127,6 +130,7 @@ function showToast(message, tone = "success") {
 }
 
 function phase() {
+  if (state.contracts.paymentPrepared?.status === "active") return "paymentPrepared";
   if (state.contracts.allocation?.status === "active") return "allocation";
   if (state.contracts.paymentRequest?.status === "active") return "paymentRequest";
   if (state.contracts.approvedPayment?.status === "active") return "approvedPayment";
@@ -148,6 +152,7 @@ function currentAction() {
   if (currentPhase === "paymentProposal" && state.role === "verifier") return "approve-payment";
   if (currentPhase === "approvedPayment" && state.role === "investor") return "accept-payment";
   if (currentPhase === "paymentRequest" && state.role === "investor") return "allocate-payment";
+  if (currentPhase === "allocation" && state.role === "issuer") return "complete-payment";
   return null;
 }
 
@@ -175,7 +180,13 @@ function setBusy(busy) {
   elements.approveComplianceButton.disabled = !enabled || action !== "approve-compliance";
   elements.paymentActionButton.disabled =
     !enabled ||
-    !["propose-payment", "approve-payment", "accept-payment", "allocate-payment"].includes(action);
+    ![
+      "propose-payment",
+      "approve-payment",
+      "accept-payment",
+      "allocate-payment",
+      "complete-payment",
+    ].includes(action);
   elements.refreshButton.disabled = busy || !state.selectedKind;
 
   elements.issueButton.innerHTML = busy && action === "attestation"
@@ -195,6 +206,7 @@ function setBusy(busy) {
     "approve-payment": ["badge-check", "Approve payment request"],
     "accept-payment": ["wallet-cards", "Accept payment request"],
     "allocate-payment": ["circle-dollar-sign", "Allocate Canton Coin"],
+    "complete-payment": ["badge-dollar-sign", "Execute atomic payment"],
   }[action] ?? ["send", "Payment authorization"];
   elements.paymentActionButton.innerHTML = busy && paymentButton
     ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
@@ -226,7 +238,8 @@ function emptyStateMessage() {
   if (currentPhase === "paymentProposal") return "Select Verifier to approve the payment request.";
   if (currentPhase === "approvedPayment") return "Select Investor to accept the payment request.";
   if (currentPhase === "paymentRequest") return "Select Investor to allocate Canton Coin.";
-  if (currentPhase === "allocation") return "The allocation is reserved for issuer execution.";
+  if (currentPhase === "allocation") return "Select Issuer to execute the allocated payment.";
+  if (currentPhase === "paymentPrepared") return "Select Custodian to continue with delivery.";
   return "No action is available in the current state.";
 }
 
@@ -274,6 +287,10 @@ function renderRole() {
       title: "Allocate Canton Coin",
       summary: "Reserve the exact payment amount in the investor's standard wallet.",
     },
+    "complete-payment": {
+      title: "Execute atomic payment",
+      summary: "Transfer the allocation while consuming the agreement and payment request.",
+    },
   }[action];
   const idlePhaseCopy = {
     agreement: {
@@ -296,6 +313,10 @@ function renderRole() {
       title: "Canton Coin allocation active",
       summary: "The investor wallet has reserved the payment for atomic execution.",
     },
+    paymentPrepared: {
+      title: "Payment prepared",
+      summary: "Canton Coin transferred and the workflow is ready for delivery evidence.",
+    },
   }[phase()];
   elements.actionTitle.textContent = actionCopy?.title ?? idlePhaseCopy?.title ?? content.title;
   elements.actionSummary.textContent = actionCopy?.summary ?? idlePhaseCopy?.summary ?? content.summary;
@@ -305,7 +326,13 @@ function renderRole() {
   elements.acceptOfferPanel.hidden = action !== "accept-offer";
   elements.approveCompliancePanel.hidden = action !== "approve-compliance";
   elements.paymentAuthorizationPanel.hidden =
-    !["propose-payment", "approve-payment", "accept-payment", "allocate-payment"].includes(action);
+    ![
+      "propose-payment",
+      "approve-payment",
+      "accept-payment",
+      "allocate-payment",
+      "complete-payment",
+    ].includes(action);
   elements.roleEmptyState.hidden = Boolean(action);
   elements.emptyStateCopy.textContent = emptyStateMessage();
 
@@ -325,7 +352,15 @@ function renderRole() {
       `${formatDecimal(compliance.terms.paymentAmount)} ${compliance.terms.paymentInstrumentId}`;
     document.querySelector("#approve-deadline").textContent = formatDate(compliance.settleBefore);
   }
-  if (["propose-payment", "approve-payment", "accept-payment", "allocate-payment"].includes(action)) {
+  if (
+    [
+      "propose-payment",
+      "approve-payment",
+      "accept-payment",
+      "allocate-payment",
+      "complete-payment",
+    ].includes(action)
+  ) {
     const paymentContract =
       state.contracts.paymentRequest ??
       state.contracts.paymentProposal ??
@@ -336,6 +371,7 @@ function renderRole() {
       "approve-payment": "Verifier approval",
       "accept-payment": "Investor acceptance",
       "allocate-payment": "Wallet allocation",
+      "complete-payment": "Atomic execution",
     }[action];
     document.querySelector("#payment-action-stage").textContent = stageLabel;
     document.querySelector("#payment-action-asset").textContent = paymentContract.terms.assetId;
@@ -364,6 +400,7 @@ function renderTimeline() {
     approvedPayment,
     paymentRequest,
     allocation,
+    paymentPrepared,
   } = state.contracts;
   if (attestation) {
     setTimelineStep(
@@ -379,20 +416,34 @@ function renderTimeline() {
   if (agreement) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-complete", "Approved");
-    const paymentLabel = allocation
-      ? "Allocated"
-      : paymentRequest
-        ? "Wallet ready"
-      : approvedPayment
-        ? "Approved"
-        : paymentProposal
-          ? "Proposed"
-          : "Pending";
-    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "is-current", paymentLabel);
+    const paymentLabel = paymentPrepared
+      ? "Transferred"
+      : allocation
+        ? "Allocated"
+        : paymentRequest
+          ? "Wallet ready"
+          : approvedPayment
+            ? "Approved"
+            : paymentProposal
+              ? "Proposed"
+              : "Pending";
+    setTimelineStep(
+      elements.paymentStep,
+      elements.paymentStepLabel,
+      paymentPrepared ? "is-complete" : "is-current",
+      paymentLabel,
+    );
+    setTimelineStep(
+      elements.deliveryStep,
+      elements.deliveryStepLabel,
+      paymentPrepared ? "is-current" : "",
+      paymentPrepared ? "Pending" : "Locked",
+    );
   } else if (compliance) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-current", "Pending");
     setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
+    setTimelineStep(elements.deliveryStep, elements.deliveryStepLabel, "", "Locked");
   } else if (offer) {
     setTimelineStep(
       elements.offerStep,
@@ -402,13 +453,20 @@ function renderTimeline() {
     );
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "", "Locked");
     setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
+    setTimelineStep(elements.deliveryStep, elements.deliveryStepLabel, "", "Locked");
   } else {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "", "Locked");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "", "Locked");
     setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
+    setTimelineStep(elements.deliveryStep, elements.deliveryStepLabel, "", "Locked");
   }
 
-  if (allocation) {
+  if (paymentPrepared) {
+    elements.timelineCount.textContent = "4 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status active";
+    elements.scenarioStatus.innerHTML =
+      '<i data-lucide="badge-dollar-sign"></i><span>Payment prepared</span>';
+  } else if (allocation) {
     elements.timelineCount.textContent = "3 of 6 complete";
     elements.scenarioStatus.className = "scenario-status active";
     elements.scenarioStatus.innerHTML =
@@ -510,7 +568,7 @@ function renderContractFields(contract) {
   addContractField("Settle before", formatDate(contract.settleBefore));
   addContractField("Issuer", shortParty(contract.terms.issuer), { code: true });
   addContractField("Investor", shortParty(contract.terms.investor), { code: true });
-  if (contract.kind === "compliance" || contract.kind === "agreement") {
+  if (["compliance", "agreement", "paymentPrepared"].includes(contract.kind)) {
     addContractField("Eligibility CID", shortContractId(contract.eligibilityAttestationCid), {
       code: true,
     });
@@ -524,6 +582,30 @@ function renderContractFields(contract) {
       addContractField(
         "Wallet discovery",
         contract.walletDiscovered ? "Allocation request visible" : "Discovery pending",
+      );
+    }
+  }
+  if (contract.kind === "paymentPrepared") {
+    addContractField("Payment reference", contract.paymentRef, { code: true });
+    if (contract.balanceEvidence) {
+      const { before, after, verified, available = true } = contract.balanceEvidence;
+      if (before && after) {
+        addContractField(
+          "Investor lock",
+          `${formatDecimal(before.investor.locked)} -> ${formatDecimal(after.investor.locked)} Amulet`,
+        );
+        addContractField(
+          "Issuer available",
+          `${formatDecimal(before.issuer.unlocked)} -> ${formatDecimal(after.issuer.unlocked)} Amulet`,
+        );
+      }
+      addContractField(
+        "Balance evidence",
+        verified
+          ? "Exact transfer confirmed"
+          : available
+            ? "Ledger transfer confirmed; balance snapshot differed"
+            : "Ledger transfer confirmed; wallet snapshot unavailable",
       );
     }
   }
@@ -575,6 +657,7 @@ function renderInspector() {
     approvedPayment: "payment approval",
     paymentRequest: "payment request",
     allocation: "Canton Coin allocation",
+    paymentPrepared: "prepared payment",
   }[contract.kind] ?? contract.kind;
   document.querySelector("#contract-status").textContent =
     `${active ? "Active" : "Archived"} ${kindLabel} contract`;
@@ -629,6 +712,7 @@ const contractPaths = {
   approvedPayment: (id) => `/api/approved-payments/${encodeURIComponent(id)}`,
   paymentRequest: (id) => `/api/payment-requests/${encodeURIComponent(id)}`,
   allocation: (id) => `/api/allocations/${encodeURIComponent(id)}`,
+  paymentPrepared: (id) => `/api/payment-prepared/${encodeURIComponent(id)}`,
 };
 
 async function refreshScenario({ quiet = false } = {}) {
@@ -666,6 +750,7 @@ elements.attestationForm.addEventListener("submit", async (event) => {
       approvedPayment: null,
       paymentRequest: null,
       allocation: null,
+      paymentPrepared: null,
     };
     state.selectedKind = "attestation";
     persistScenario();
@@ -723,6 +808,7 @@ elements.acceptOfferButton.addEventListener("click", async () => {
     state.contracts.approvedPayment = null;
     state.contracts.paymentRequest = null;
     state.contracts.allocation = null;
+    state.contracts.paymentPrepared = null;
     state.selectedKind = "compliance";
     persistScenario();
     renderAll();
@@ -747,6 +833,7 @@ elements.approveComplianceButton.addEventListener("click", async () => {
     state.contracts.approvedPayment = null;
     state.contracts.paymentRequest = null;
     state.contracts.allocation = null;
+    state.contracts.paymentPrepared = null;
     state.selectedKind = "agreement";
     persistScenario();
     renderAll();
@@ -799,6 +886,26 @@ elements.paymentActionButton.addEventListener("click", async () => {
       );
       state.selectedKind = "allocation";
       showToast("Investor wallet allocated Canton Coin for settlement.");
+    } else if (action === "complete-payment") {
+      const result = await api(
+        `/api/payment-requests/${encodeURIComponent(state.contracts.paymentRequest.contractId)}/complete`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            allocationContractId: state.contracts.allocation.contractId,
+          }),
+        },
+      );
+      state.contracts.paymentRequest = result.paymentRequest;
+      state.contracts.agreement = result.purchaseAgreement;
+      state.contracts.allocation = result.allocation;
+      state.contracts.paymentPrepared = result.paymentPrepared;
+      state.selectedKind = "paymentPrepared";
+      showToast(
+        result.paymentPrepared.balanceEvidence?.verified
+          ? "Canton Coin transferred; exact wallet movement confirmed."
+          : "Canton Coin transferred and payment preparation committed.",
+      );
     }
     persistScenario();
     renderAll();
@@ -835,6 +942,7 @@ elements.resetButton.addEventListener("click", () => {
     approvedPayment: null,
     paymentRequest: null,
     allocation: null,
+    paymentPrepared: null,
   };
   state.selectedKind = null;
   persistScenario();

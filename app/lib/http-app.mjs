@@ -232,12 +232,37 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const completePaymentMatch = url.pathname.match(
+        /^\/api\/payment-requests\/([^/]+)\/complete$/,
+      );
+      if (request.method === "POST" && completePaymentMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.completeTokenizedPayment(
+            decodeURIComponent(completePaymentMatch[1]),
+            await readJson(request),
+          ),
+        );
+        return;
+      }
+
       const allocationMatch = url.pathname.match(/^\/api\/allocations\/([^/]+)$/);
       if (request.method === "GET" && allocationMatch) {
         sendJson(
           response,
           200,
           await cantonClient.getCantonCoinAllocation(decodeURIComponent(allocationMatch[1])),
+        );
+        return;
+      }
+
+      const paymentPreparedMatch = url.pathname.match(/^\/api\/payment-prepared\/([^/]+)$/);
+      if (request.method === "GET" && paymentPreparedMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getPaymentPrepared(decodeURIComponent(paymentPreparedMatch[1])),
         );
         return;
       }

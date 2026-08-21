@@ -490,3 +490,25 @@ API and displays it separately from `TokenizedPaymentRequest`. At this point the
 coin is reserved, not transferred. The next issuer action must supply the
 registry's choice context and disclosed contracts to execute the allocation
 inside `CompleteTokenizedPayment`.
+
+## 26. Disclosed Contracts Complete The Transaction Context
+
+`CompleteTokenizedPayment` needs more than the allocation contract ID. Canton
+Coin execution depends on current registry contracts for rules, the open round,
+external-party configuration, and the locked holding. The backend requests that
+context from the registry immediately before submission.
+
+The registry response has two distinct jobs:
+
+- `choiceContextData` becomes `extraArgs.context`, a value the standard
+  `Allocation_ExecuteTransfer` choice reads.
+- `disclosedContracts` goes in the JSON Ledger API command envelope, allowing
+  the participant to use the referenced contracts and opaque event blobs in
+  this transaction without first making them part of our application model.
+
+Our Daml choice still controls the business transaction. It validates the exact
+settlement and transfer-leg views, exercises the allocation, archives the
+purchase agreement, and creates `PaymentPrepared`. Canton commits every effect
+together. The UI re-queries all four contracts after submission and reports
+wallet snapshots as supporting evidence; those balances are not persisted as
+workflow truth.

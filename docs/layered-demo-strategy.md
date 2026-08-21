@@ -37,8 +37,8 @@ leg remains.
    both wallet balances.
 5. Next: model and execute the tokenized delivery leg in the same transaction.
 6. Completed: add a repeatable JSON Ledger API runner.
-7. In progress: connect the payment path to the presentation UI; real wallet
-   allocation is complete and atomic execution is next.
+7. Completed: connect the payment path through atomic execution to the
+   presentation UI.
 
 The official Quickstart licensing workflow is the primary implementation
 reference because it validates an allocation and executes its transfer inside a
@@ -48,15 +48,16 @@ business-state transition.
 
 Goal: explain the workflow in three to five minutes without weakening the proof.
 
-Status: the workflow through wallet allocation is connected. The browser
+Status: the workflow through `PaymentPrepared` is connected. The browser
 creates an eligibility attestation and asset offer, then accepts the offer
 through the investor participant and approves compliance through the verifier
 to reach the purchase agreement. Issuer, verifier, and investor authorize a
-standard payment request, and the investor wallet reserves real Canton Coin.
+standard payment request, the investor wallet reserves real Canton Coin, and
+the issuer executes the transfer atomically with workflow advancement.
 
 - Completed: role switcher for issuer, investor, verifier, custodian, and auditor.
-- In progress: timeline reflecting the exact on-ledger state through the
-  standard Canton Coin `Allocation`.
+- In progress: timeline reflecting the exact on-ledger state through
+  `PaymentPrepared`; custodian and receipt actions are next.
 - Commands enabled only for the current role and active contract.
 - Visible failure for withdrawn or expired eligibility.
 - Auditor view limited to the final receipt.

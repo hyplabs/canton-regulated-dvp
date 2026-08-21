@@ -15,9 +15,12 @@ The current workflow supports:
 6. Issuer proposes payment, verifier approves it, and investor accepts it.
 7. The standard wallet discovers the resulting `TokenizedPaymentRequest`.
 8. Investor allocates the exact payment leg through the standard wallet API.
-9. The inspector shows the active attestation, agreement, payment request, and
-   real Canton Coin allocation alongside archived authorization states from
-   fresh Ledger API queries.
+9. Issuer executes `CompleteTokenizedPayment` with registry context and
+   disclosures.
+10. Canton transfers the coin, archives the request, agreement, and allocation,
+    and creates `PaymentPrepared` atomically.
+11. The inspector retains every contract state and shows the immediate wallet
+    balance evidence alongside fresh Ledger API queries.
 
 Custodian and auditor views remain read-only until their corresponding ledger
 transitions are implemented.
@@ -42,13 +45,17 @@ The browser calls only the local backend:
 - `POST /api/approved-payments/:contractId/accept`
 - `GET /api/payment-requests/:contractId`
 - `POST /api/payment-requests/:contractId/allocate`
+- `POST /api/payment-requests/:contractId/complete`
 - `GET /api/allocations/:contractId`
+- `GET /api/payment-prepared/:contractId`
 
 The backend retrieves participant context from the Quickstart onboarding
 container. Issuer and verifier commands use the provider Ledger API on
-`127.0.0.1:3975`; offer acceptance uses the investor Ledger API on
-`127.0.0.1:2975`. Participant tokens are never returned to the browser. This is
-an appropriate LocalNet demo boundary, not a production identity design.
+`127.0.0.1:3975`; investor commands use the app-user Ledger API on
+`127.0.0.1:2975`. Allocation uses the investor validator, while execution gets
+the registry context inside the onboarding container. Participant, wallet, and
+registry data are never returned directly to the browser. This is an
+appropriate LocalNet demo boundary, not a production identity design.
 
 ## Run
 
@@ -77,13 +84,11 @@ layout.
 
 ## Next Extension
 
-Execute the allocated Canton Coin as the next stateful milestone:
+Continue through delivery as the next stateful milestone:
 
-1. Backend obtains the registry execute-transfer context and disclosures.
-2. Provider exercises `CompleteTokenizedPayment` atomically with allocation
-   execution.
-3. The UI verifies the request, agreement, and allocation were consumed and
-   shows the resulting `PaymentPrepared` contract.
+1. Custodian records a delivery reference through `ConfirmDelivery`.
+2. The UI shows the resulting `ReadyToSettle` state.
+3. Issuer and verifier finalize an auditor-visible `SettlementReceipt`.
 
 Continue this pattern for each transition. Every visible state change must come
 from a transaction response or a fresh contract query; the frontend must not

@@ -33,6 +33,8 @@ Date range: 2026-08-20 to 2026-08-27
   stakeholder UI.
 - Added real Canton Coin allocation and allocation-contract evidence to the
   stakeholder UI.
+- Added registry-backed atomic payment execution, consumed-contract evidence,
+  and wallet balance verification to the stakeholder UI.
 
 ## Next: Complete V2
 
@@ -45,7 +47,7 @@ Date range: 2026-08-20 to 2026-08-27
 1. Completed: add a backend that submits verifier commands without exposing
    participant tokens to the browser.
 2. In progress: extend the role-based workflow UI one ledger transition at a
-   time; the real Canton Coin allocation is now reached.
+   time; `PaymentPrepared` is now reached.
 3. Demonstrate successful settlement and withdrawn-eligibility failure.
 4. Capture a three-to-five-minute walkthrough.
 

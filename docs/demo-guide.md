@@ -61,13 +61,34 @@ docker ps --format '{{.Names}}  {{.Status}}'
 
 Open these tabs before presenting:
 
+- Stakeholder UI: `http://127.0.0.1:4173`
 - Investor allocations: `http://wallet.localhost:2000/allocations`
 - Investor wallet: `http://wallet.localhost:2000`
 - Provider wallet: `http://wallet.localhost:3000`
 - [Regulated.daml](../daml/model/daml/Settlement/Regulated.daml)
 - [TokenizedPayment.daml](../daml/tokenized-model/daml/Settlement/TokenizedPayment.daml)
 
-## Recommended Command
+## Browser Walkthrough
+
+Start the stakeholder app with `npm run app`, open
+`http://127.0.0.1:4173`, and use the role rail to perform these actions:
+
+1. Verifier issues eligibility.
+2. Issuer creates the private-credit offer.
+3. Investor accepts it.
+4. Verifier approves compliance.
+5. Issuer proposes payment.
+6. Verifier approves the payment request.
+7. Investor accepts the request and allocates 10 Canton Coin.
+8. Issuer executes the atomic payment.
+
+At `PaymentPrepared`, show the green Payment step, pending Delivery step, exact
+wallet movement, and the inspector tabs. The Request, Agreement, and Allocation
+tabs are archived; Prepared is active. This is the recommended visual path. The
+terminal walkthrough below adds the wrong-party rejection, custodian action,
+and final receipt.
+
+## Full Workflow Command
 
 Run from the POC repository in a terminal visible to the audience:
 

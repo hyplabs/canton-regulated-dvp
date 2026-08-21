@@ -93,7 +93,7 @@
             </li>
             <li class="timeline-step" data-stage="delivery">
               <span class="step-index"><i data-lucide="package-check"></i></span>
-              <div><strong>Delivery</strong><span>Locked</span></div>
+              <div><strong>Delivery</strong><span id="delivery-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="receipt">
               <span class="step-index"><i data-lucide="receipt-text"></i></span>
@@ -234,6 +234,7 @@
           <button type="button" role="tab" data-contract-kind="approvedPayment" disabled>Approval</button>
           <button type="button" role="tab" data-contract-kind="paymentRequest" disabled>Request</button>
           <button type="button" role="tab" data-contract-kind="allocation" disabled>Allocation</button>
+          <button type="button" role="tab" data-contract-kind="paymentPrepared" disabled>Prepared</button>
         </div>
 
         <div id="inspector-empty" class="inspector-empty">
