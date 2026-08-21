@@ -85,6 +85,8 @@ jointly controlled completion choice.
 - `scripts/test.sh` - builds every package and executes both test suites.
 - `scripts/localnet-demo.sh` - uploads both production DARs and executes a real
   Canton Coin settlement against a running Quickstart LocalNet.
+- `scripts/localnet-demo-runtime.sh` - container-side Ledger and wallet API
+  workflow used by the LocalNet runner.
 - `.github/workflows/daml.yml` - reproducible JDK, DPM, build, and test CI.
 
 Official source snapshots are kept outside this repository in the sibling
@@ -118,7 +120,10 @@ With Quickstart LocalNet running, execute the real Canton Coin path:
 ./scripts/localnet-demo.sh
 ```
 
-See `docs/runbook.md` for environment and troubleshooting details.
+Start with `docs/demo-guide.md` for the presentation walkthrough and
+`docs/runbook.md` for environment and troubleshooting details.
+The latest stopped-stack timing and ledger evidence are recorded in
+`docs/demo-rehearsal.md`.
 The exact real-registry handoff is in
 `docs/localnet-integration-milestone.md`.
 
@@ -135,7 +140,8 @@ The exact real-registry handoff is in
   Canton Coin, and the registry allocation executes atomically with the
   regulated workflow transition.
 - The repeatable LocalNet runner verifies consumed request/allocation state,
-  final receipt creation, and sender/receiver balance changes.
+  final receipt creation, sender/receiver balance changes, and atomic rejection
+  of an investor's unauthorized settlement attempt.
 - JDK 21 is provisioned locally for this workspace.
-- A tokenized delivery leg, LocalNet negative-path coverage, and the stakeholder
-  UI remain upcoming V2/V3 work.
+- A tokenized delivery leg, broader LocalNet failure coverage, and the
+  stakeholder UI remain upcoming V2/V3 work.

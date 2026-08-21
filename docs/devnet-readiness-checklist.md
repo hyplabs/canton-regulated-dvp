@@ -24,7 +24,7 @@ Date: 2026-08-20
 - [x] Execute a real Canton Coin allocation through the wallet and registry.
 - [x] Add a repeatable LocalNet demo runner.
 - [x] Document a repeatable teardown procedure.
-- [ ] Capture representative LocalNet logs as release evidence.
+- [x] Capture representative LocalNet rehearsal evidence.
 
 ## Token Standard
 
@@ -48,6 +48,6 @@ Date: 2026-08-20
 ## Release Evidence
 
 - [ ] Tag a reviewed demo commit.
-- [ ] Publish build and test output.
+- [x] Record build, test, and LocalNet demo results.
 - [ ] Record the stakeholder walkthrough.
 - [x] Document known V1 and current V2 limitations.

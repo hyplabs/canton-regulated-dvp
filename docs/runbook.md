@@ -89,6 +89,18 @@ The runner is repeatable. It uploads only production DARs, uses the current
 tokenized model package ID, funds the LocalNet investor when necessary, and
 prints the final receipt, consumed allocation, and before/after balances.
 
+Presentation modes can be combined:
+
+```bash
+./scripts/localnet-demo.sh --interactive --show-negative
+./scripts/localnet-demo.sh --show-negative --verbose
+```
+
+`--interactive` pauses at wallet discovery. `--show-negative` submits and
+verifies a real wrong-party rejection before successful completion. `--verbose`
+adds contract IDs and detailed errors. See `docs/demo-guide.md` for the timed
+walkthrough.
+
 Useful Quickstart endpoints are:
 
 - Investor wallet: `http://wallet.localhost:2000`
