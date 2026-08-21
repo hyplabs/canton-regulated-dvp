@@ -1,20 +1,21 @@
 # Stakeholder UI
 
-The `app/` directory is the first V3 vertical slice. It connects a role-based
-browser interface to the real Quickstart LocalNet JSON Ledger API.
+The `app/` directory is the V3 stakeholder slice. It connects a role-based
+browser interface to the real Quickstart LocalNet JSON Ledger APIs.
 
 ## Current Slice
 
-The verifier can:
+The current workflow supports:
 
-1. Select an asset class and attestation lifetime.
-2. Create an `EligibilityAttestation` as the LocalNet provider party.
-3. See the eligibility stage advance from pending to active.
-4. Refresh the contract by ID and confirm that Canton reports a created event
-   with no archive event.
+1. Verifier creates `EligibilityAttestation` as the LocalNet provider party.
+2. Issuer creates `AssetOffer` with units, payment, and deadlines.
+3. Investor exercises `AcceptOffer` through the app-user participant.
+4. The timeline advances to `CompliancePending`.
+5. The inspector shows the active attestation, archived offer, and active
+   compliance contract from fresh Ledger API queries.
 
-Issuer, investor, custodian, and auditor views are present but remain read-only
-until their corresponding ledger transitions are implemented.
+Custodian and auditor views remain read-only until their corresponding ledger
+transitions are implemented.
 
 ## Boundary
 
@@ -23,11 +24,16 @@ The browser calls only the local backend:
 - `GET /api/health`
 - `POST /api/attestations`
 - `GET /api/attestations/:contractId`
+- `POST /api/offers`
+- `GET /api/offers/:contractId`
+- `POST /api/offers/:contractId/accept`
+- `GET /api/compliance-pending/:contractId`
 
 The backend retrieves participant context from the Quickstart onboarding
-container and calls the provider Ledger API on `127.0.0.1:3975`. Participant
-tokens are never returned to the browser. This is an appropriate LocalNet demo
-boundary, not a production identity design.
+container. Issuer and verifier commands use the provider Ledger API on
+`127.0.0.1:3975`; offer acceptance uses the investor Ledger API on
+`127.0.0.1:2975`. Participant tokens are never returned to the browser. This is
+an appropriate LocalNet demo boundary, not a production identity design.
 
 ## Run
 
@@ -39,7 +45,8 @@ npm install
 npm run app
 ```
 
-Open `http://127.0.0.1:4173` and use the Verifier role.
+Open `http://127.0.0.1:4173` and follow the Verifier, Issuer, and Investor
+actions shown for the current state.
 
 ## Tests
 
@@ -48,18 +55,19 @@ npm run test:app
 npm run test:ui
 ```
 
-The Node suite verifies input validation, command authority, JSON encoding, and
-created/archived event normalization. Playwright verifies the role interaction,
-active contract evidence, and desktop/mobile layout.
+The Node suite verifies input validation, provider/investor command authority,
+JSON encoding, and created/archived event normalization. Playwright verifies
+the role interactions, state progression, contract tabs, and desktop/mobile
+layout.
 
 ## Next Extension
 
-Add `AssetOffer` as the next stateful action:
+Add verifier compliance approval as the next stateful action:
 
-1. The issuer creates an offer referencing the current scenario terms.
-2. The UI stores the returned contract ID in scenario state.
-3. The timeline marks Eligibility and Offer active.
-4. The investor view exposes `AcceptOffer` only while both contracts are active.
+1. Verifier exercises `ApproveCompliance` on the active `CompliancePending`.
+2. Canton archives the pending contract and creates `PurchaseAgreement`.
+3. The timeline marks Compliance complete and Payment current.
+4. The inspector retains both the archived review and active agreement.
 
 Continue this pattern for each transition. Every visible state change must come
 from a transaction response or a fresh contract query; the frontend must not

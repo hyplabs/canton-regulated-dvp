@@ -47,11 +47,13 @@ business-state transition.
 
 Goal: explain the workflow in three to five minutes without weakening the proof.
 
-Status: the first real vertical slice is complete. The verifier can create an
-eligibility attestation from the browser and inspect its active Canton contract.
+Status: the first three ledger states are connected. The browser creates an
+eligibility attestation and asset offer, then accepts the offer through the
+investor participant to reach compliance review.
 
 - Completed: role switcher for issuer, investor, verifier, custodian, and auditor.
-- In progress: timeline reflecting the exact on-ledger state.
+- In progress: timeline reflecting the exact on-ledger state through
+  `CompliancePending`.
 - Commands enabled only for the current role and active contract.
 - Visible failure for withdrawn or expired eligibility.
 - Auditor view limited to the final receipt.

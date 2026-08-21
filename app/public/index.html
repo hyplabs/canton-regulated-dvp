@@ -81,11 +81,11 @@
             </li>
             <li class="timeline-step" data-stage="offer">
               <span class="step-index"><i data-lucide="file-plus-2"></i></span>
-              <div><strong>Offer</strong><span>Locked</span></div>
+              <div><strong>Offer</strong><span id="offer-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="compliance">
               <span class="step-index"><i data-lucide="clipboard-check"></i></span>
-              <div><strong>Compliance</strong><span>Locked</span></div>
+              <div><strong>Compliance</strong><span id="compliance-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="payment">
               <span class="step-index"><i data-lucide="coins"></i></span>
@@ -136,6 +136,52 @@
             </button>
           </form>
 
+          <form id="offer-form" class="attestation-form offer-form" hidden>
+            <label>
+              <span>Asset ID</span>
+              <input id="asset-id" name="assetId" type="text" value="PC-NOTE-2026-A" maxlength="64" />
+            </label>
+            <label>
+              <span>Units</span>
+              <input id="asset-units" name="units" type="number" value="1000" min="1" max="1000000000" />
+            </label>
+            <label>
+              <span>Canton Coin</span>
+              <input id="payment-amount" name="paymentAmount" type="number" value="10.0" min="0.0000000001" step="0.1" />
+            </label>
+            <label>
+              <span>Offer valid for</span>
+              <select id="offer-validity" name="offerValidForMinutes">
+                <option value="15">15 minutes</option>
+                <option value="30" selected>30 minutes</option>
+                <option value="60">1 hour</option>
+              </select>
+            </label>
+            <label>
+              <span>Settle within</span>
+              <select id="settlement-window" name="settleInHours">
+                <option value="2" selected>2 hours</option>
+                <option value="24">24 hours</option>
+                <option value="72">3 days</option>
+              </select>
+            </label>
+            <button id="create-offer-button" class="primary-button" type="submit" disabled>
+              <i data-lucide="file-plus-2"></i><span>Create asset offer</span>
+            </button>
+          </form>
+
+          <div id="accept-offer-panel" class="action-confirmation" hidden>
+            <dl>
+              <div><dt>Asset</dt><dd id="accept-asset"></dd></div>
+              <div><dt>Quantity</dt><dd id="accept-units"></dd></div>
+              <div><dt>Payment</dt><dd id="accept-payment"></dd></div>
+              <div><dt>Offer expires</dt><dd id="accept-expires"></dd></div>
+            </dl>
+            <button id="accept-offer-button" class="primary-button" type="button" disabled>
+              <i data-lucide="file-check-2"></i><span>Accept offer</span>
+            </button>
+          </div>
+
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -155,24 +201,25 @@
           </button>
         </div>
 
+        <div id="contract-tabs" class="contract-tabs" role="tablist" aria-label="Scenario contracts" hidden>
+          <button type="button" role="tab" data-contract-kind="attestation" disabled>Eligibility</button>
+          <button type="button" role="tab" data-contract-kind="offer" disabled>Offer</button>
+          <button type="button" role="tab" data-contract-kind="compliance" disabled>Compliance</button>
+        </div>
+
         <div id="inspector-empty" class="inspector-empty">
           <i data-lucide="file-search"></i>
-          <strong>No attestation selected</strong>
+          <strong>No contract selected</strong>
           <span>The active contract will appear here.</span>
         </div>
 
         <div id="contract-details" class="contract-details" hidden>
           <div class="contract-state"><span class="status-dot"></span><strong id="contract-status">Active</strong></div>
-          <dl>
-            <div><dt>Asset class</dt><dd id="detail-asset-class"></dd></div>
-            <div><dt>Expires</dt><dd id="detail-expires"></dd></div>
-            <div><dt>Verifier</dt><dd><code id="detail-verifier"></code></dd></div>
-            <div><dt>Investor</dt><dd><code id="detail-investor"></code></dd></div>
-            <div class="contract-id-row">
-              <dt>Contract ID</dt>
-              <dd><code id="detail-contract-id"></code><button id="copy-button" class="copy-button" type="button" title="Copy contract ID"><i data-lucide="copy"></i><span class="sr-only">Copy contract ID</span></button></dd>
-            </div>
-          </dl>
+          <dl id="contract-fields"></dl>
+          <div class="contract-id-row contract-id-detail">
+            <dt>Contract ID</dt>
+            <dd><code id="detail-contract-id"></code><button id="copy-button" class="copy-button" type="button" title="Copy contract ID"><i data-lucide="copy"></i><span class="sr-only">Copy contract ID</span></button></dd>
+          </div>
           <div class="ledger-proof">
             <i data-lucide="database-zap"></i>
             <div><strong>Ledger query confirmed</strong><span id="proof-copy">Created event present; no archive event.</span></div>

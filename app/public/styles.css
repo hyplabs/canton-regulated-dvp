@@ -342,6 +342,11 @@ h2 {
   background: var(--green-soft);
 }
 
+.scenario-status.offer-open {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+
 .scenario-status.archived {
   color: var(--red);
   background: var(--red-soft);
@@ -500,6 +505,15 @@ h2 {
   background: #fafbfa;
 }
 
+.offer-form {
+  grid-template-columns: minmax(150px, 1.3fr) minmax(90px, 0.7fr) minmax(110px, 0.8fr);
+}
+
+.offer-form label:nth-of-type(4),
+.offer-form label:nth-of-type(5) {
+  grid-column: span 1;
+}
+
 .attestation-form label {
   min-width: 0;
   display: grid;
@@ -594,6 +608,40 @@ h2 {
   font-size: 11px;
 }
 
+.action-confirmation {
+  padding: 18px 20px 20px;
+  border-top: 1px solid var(--line);
+  background: #fafbfa;
+}
+
+.action-confirmation dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.action-confirmation dl > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.action-confirmation dt {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.action-confirmation dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .inspector {
   min-width: 0;
   padding: 26px 20px;
@@ -608,6 +656,42 @@ h2 {
   gap: 12px;
   padding-bottom: 17px;
   border-bottom: 1px solid var(--line);
+}
+
+.contract-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.contract-tabs button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.contract-tabs button:hover:not(:disabled) {
+  background: #f2f5f3;
+}
+
+.contract-tabs button[aria-selected="true"] {
+  color: var(--ink);
+  border-color: #c7d0cb;
+  background: #eef2f0;
+}
+
+.contract-tabs button:disabled {
+  color: #b2bab6;
+  cursor: not-allowed;
 }
 
 .inspector-empty {
@@ -687,6 +771,13 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+.contract-id-detail {
+  display: grid;
+  gap: 5px;
+  padding: 14px 0;
+  border-bottom: 1px solid #e8ece9;
 }
 
 .copy-button {
@@ -853,6 +944,15 @@ h2 {
 
   .attestation-form {
     grid-template-columns: 1fr;
+  }
+
+  .offer-form label:nth-of-type(4),
+  .offer-form label:nth-of-type(5) {
+    grid-column: auto;
+  }
+
+  .action-confirmation dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .primary-button {

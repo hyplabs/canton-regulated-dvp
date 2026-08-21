@@ -9,9 +9,10 @@ validates a funded `Allocation`, and executes its transfer before the workflow
 can reach `PaymentPrepared`. The LocalNet runner proves that path with real
 Canton Coin and separate app-provider/app-user participants.
 
-The first V3 slice adds a role-based browser UI backed by the real JSON Ledger
-API. A verifier can create an `EligibilityAttestation`, refresh its active state,
-and inspect the contract evidence returned by Canton.
+The V3 browser UI is backed by the real JSON Ledger API. A verifier creates an
+`EligibilityAttestation`, the issuer creates an `AssetOffer`, and the investor
+exercises `AcceptOffer` through its own participant. The UI then shows the
+archived offer and active `CompliancePending` contract returned by Canton.
 
 This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
 small allocation implementation, while the LocalNet path uses the real Canton
@@ -132,8 +133,8 @@ npm install
 npm run app
 ```
 
-Open `http://127.0.0.1:4173`. Use the Verifier role to issue an eligibility
-attestation, then refresh its contract state in the ledger inspector.
+Open `http://127.0.0.1:4173`. Start as Verifier, then follow the available Issuer
+and Investor actions. The contract inspector retains each state for comparison.
 
 Run the application tests with:
 
@@ -164,8 +165,8 @@ The exact real-registry handoff is in
 - The repeatable LocalNet runner verifies consumed request/allocation state,
   final receipt creation, sender/receiver balance changes, and atomic rejection
   of an investor's unauthorized settlement attempt.
-- The V3 UI creates and independently re-queries a real eligibility contract;
-  participant credentials remain in the local backend.
+- The V3 UI reaches `CompliancePending` through real provider and app-user
+  submissions; participant credentials remain in the local backend.
 - JDK 21 is provisioned locally for this workspace.
 - A tokenized delivery leg, broader LocalNet failure coverage, and the
   remaining stakeholder workflow actions remain upcoming V2/V3 work.

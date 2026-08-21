@@ -95,6 +95,38 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/offers") {
+        sendJson(response, 201, await cantonClient.createAssetOffer(await readJson(request)));
+        return;
+      }
+
+      const acceptOfferMatch = url.pathname.match(/^\/api\/offers\/([^/]+)\/accept$/);
+      if (request.method === "POST" && acceptOfferMatch) {
+        const contractId = decodeURIComponent(acceptOfferMatch[1]);
+        sendJson(response, 200, await cantonClient.acceptAssetOffer(contractId, await readJson(request)));
+        return;
+      }
+
+      const offerMatch = url.pathname.match(/^\/api\/offers\/([^/]+)$/);
+      if (request.method === "GET" && offerMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getAssetOffer(decodeURIComponent(offerMatch[1])),
+        );
+        return;
+      }
+
+      const complianceMatch = url.pathname.match(/^\/api\/compliance-pending\/([^/]+)$/);
+      if (request.method === "GET" && complianceMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getCompliancePending(decodeURIComponent(complianceMatch[1])),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {

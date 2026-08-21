@@ -11,6 +11,7 @@ const health = {
 };
 
 const attestation = {
+  kind: "attestation",
   contractId: "00abcdef1234567890abcdef1234567890",
   templateId: "pkg:Settlement.Regulated:EligibilityAttestation",
   status: "active",
@@ -18,6 +19,37 @@ const attestation = {
   investor: health.roles.investor,
   assetClass: "PRIVATE-CREDIT",
   expiresAt: "2026-08-22T00:00:00Z",
+};
+
+const offer = {
+  kind: "offer",
+  contractId: "00offer1234567890abcdef1234567890",
+  templateId: "pkg:Settlement.Regulated:AssetOffer",
+  status: "active",
+  terms: {
+    issuer: health.roles.provider,
+    investor: health.roles.investor,
+    verifier: health.roles.provider,
+    custodian: health.roles.provider,
+    auditor: health.roles.provider,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  },
+  offerExpiresAt: "2026-08-21T22:00:00Z",
+  settleBefore: "2026-08-22T00:00:00Z",
+};
+
+const compliancePending = {
+  kind: "compliance",
+  contractId: "00compliance1234567890abcdef1234",
+  templateId: "pkg:Settlement.Regulated:CompliancePending",
+  status: "active",
+  terms: offer.terms,
+  eligibilityAttestationCid: attestation.contractId,
+  settleBefore: offer.settleBefore,
 };
 
 async function mockApi(page) {
@@ -41,8 +73,8 @@ test("verifier creates an attestation and sees ledger evidence", async ({ page }
   await page.getByRole("button", { name: "Issue attestation" }).click();
 
   await expect(page.getByText("Eligibility active")).toBeVisible();
-  await expect(page.getByText("Active contract", { exact: true })).toBeVisible();
-  await expect(page.locator("#detail-asset-class")).toHaveText("PRIVATE-CREDIT");
+  await expect(page.getByText("Active attestation contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("PRIVATE-CREDIT");
   await expect(page.getByText("Created event present; no archive event.")).toBeVisible();
   await expect(page.getByText("1 of 6 complete")).toBeVisible();
 
@@ -78,5 +110,46 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Issue attestation" })).toBeEnabled();
-  await expect(page.getByText("No attestation selected")).toBeVisible();
+  await expect(page.getByText("No contract selected")).toBeVisible();
+});
+
+test("issuer creates an offer and investor advances it to compliance", async ({ page }) => {
+  await mockApi(page);
+  await page.route("**/api/offers", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      attestationContractId: attestation.contractId,
+      assetId: "PC-NOTE-2026-A",
+      units: 1000,
+      paymentAmount: "10.0",
+      offerValidForMinutes: 30,
+      settleInHours: 2,
+    });
+    await route.fulfill({ status: 201, json: offer });
+  });
+  await page.route("**/api/offers/*/accept", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      attestationContractId: attestation.contractId,
+    });
+    await route.fulfill({
+      json: { offer: { ...offer, status: "archived" }, compliancePending },
+    });
+  });
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "Issue attestation" }).click();
+  await page.getByRole("button", { name: "Issuer" }).click();
+  await expect(page.getByRole("button", { name: "Create asset offer" })).toBeEnabled();
+  await page.getByRole("button", { name: "Create asset offer" }).click();
+  await expect(page.getByText("Offer open")).toBeVisible();
+  await expect(page.getByText("Active offer contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Investor" }).click();
+  await expect(page.getByRole("button", { name: "Accept offer" })).toBeEnabled();
+  await page.getByRole("button", { name: "Accept offer" }).click();
+  await expect(page.getByText("Compliance pending")).toBeVisible();
+  await expect(page.getByText("2 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active compliance contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Offer" }).click();
+  await expect(page.getByText("Archived offer contract", { exact: true })).toBeVisible();
 });

@@ -408,3 +408,25 @@ authority. The investor becomes an observer because the Daml template declares
 After submission, the backend calls `events-by-contract-id`. An active result
 has a created event and no archive event. The UI timeline and inspector are
 therefore projections of ledger state, not a second workflow implementation.
+
+## 22. Parent Authority Flows Into A Choice Result
+
+The issuer creates `AssetOffer`, so the offer contract has issuer authority as
+its signatory. The investor later submits only this exercise:
+
+```daml
+exercise offerCid AcceptOffer with
+  eligibilityAttestationCid
+```
+
+`AcceptOffer` is controlled by the investor, but its result creates
+`CompliancePending`, whose signatories are both issuer and investor. This works
+without pretending that the investor participant can act as the issuer. The
+consumed `AssetOffer` supplies its issuer signatory authority to direct
+consequences of the choice, while the controller contributes investor
+authority.
+
+That is why the browser backend sends offer creation to the provider Ledger API
+and acceptance to the app-user Ledger API. After acceptance, a fresh query shows
+the offer archived and `CompliancePending` active. The two visible changes are
+parts of one atomic Daml transaction.
