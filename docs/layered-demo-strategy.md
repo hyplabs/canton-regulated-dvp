@@ -26,12 +26,17 @@ The fallback technical demo is:
 
 Goal: turn the V1 settlement evidence into actual Canton integration.
 
-1. Add token-standard DAR data dependencies.
-2. Model payment and asset transfer legs with allocation requests.
-3. Use a shared settlement reference and `settleBefore` deadline.
-4. Execute both allocations atomically during finalization.
-5. Run the packages in Canton Quickstart/LocalNet.
-6. Add JSON Ledger API examples or a thin backend adapter.
+Status: payment integration is locally complete; LocalNet and the delivery leg
+remain.
+
+1. Completed: pin token-standard API DAR data dependencies.
+2. Completed: expose the payment leg through `AllocationRequest`.
+3. Completed: validate and execute one matching `Allocation` atomically with
+   advancement to `PaymentPrepared`.
+4. Next: replace the test allocation with a Quickstart/LocalNet registry
+   allocation.
+5. Next: model and execute the tokenized delivery leg in the same transaction.
+6. Then: add JSON Ledger API examples or a thin backend adapter.
 
 The official Quickstart licensing workflow is the primary implementation
 reference because it validates an allocation and executes its transfer inside a

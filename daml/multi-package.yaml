@@ -1,3 +1,5 @@
 packages:
 - ./model
 - ./tests
+- ./tokenized-model
+- ./tokenized-tests

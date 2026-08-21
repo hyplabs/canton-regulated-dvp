@@ -1,0 +1,118 @@
+module Settlement.TokenizedPayment where
+
+import DA.Optional (fromSome)
+import DA.TextMap as TextMap
+
+import Settlement.Regulated
+import Splice.Api.Token.AllocationRequestV1
+import Splice.Api.Token.AllocationV1
+import Splice.Api.Token.HoldingV1 (InstrumentId)
+import Splice.Api.Token.MetadataV1
+
+paymentLegId : Text
+paymentLegId = "payment"
+
+template TokenizedPaymentRequest
+  with
+    requestId : Text
+    terms : SettlementTerms
+    agreementCid : ContractId PurchaseAgreement
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    paymentInstrumentId : InstrumentId
+    requestedAt : Time
+    allocateBefore : Time
+    settleBefore : Time
+  where
+    signatory terms.issuer, terms.investor, terms.verifier
+    observer terms.custodian
+    ensure
+      validSettlementTerms terms
+        && requestId /= ""
+        && terms.paymentInstrumentId == paymentInstrumentId.id
+        && requestedAt < allocateBefore
+        && allocateBefore < settleBefore
+
+    postconsuming choice CompleteTokenizedPayment : ContractId PaymentPrepared
+      with
+        allocationCid : ContractId Allocation
+        extraArgs : ExtraArgs
+      controller terms.issuer, terms.verifier
+      do
+        now <- getTime
+        require "Payment request time is not in the future"
+          (requestedAt <= now)
+        require "Tokenized payment settlement deadline has not passed"
+          (now < settleBefore)
+
+        purchaseAgreement <- fetch agreementCid
+        require "Payment request references these settlement terms"
+          (purchaseAgreement.terms == terms)
+        require "Payment request references this eligibility attestation"
+          (purchaseAgreement.eligibilityAttestationCid == eligibilityAttestationCid)
+        require "Payment request uses the agreement settlement deadline"
+          (purchaseAgreement.settleBefore == settleBefore)
+
+        attestation <- fetch eligibilityAttestationCid
+        validateEligibility now terms attestation
+
+        allocation <- fetch @Allocation allocationCid
+        let allocationView = view @Allocation allocation
+        let requestView = tokenizedPaymentRequestView this
+        let expectedTransferLeg =
+              fromSome $ TextMap.lookup paymentLegId requestView.transferLegs
+
+        require "Allocation is for the payment leg"
+          (allocationView.allocation.transferLegId == paymentLegId)
+        require "Allocation matches the requested payment transfer"
+          (allocationView.allocation.transferLeg == expectedTransferLeg)
+        require "Allocation matches this settlement request"
+          (allocationView.allocation.settlement == requestView.settlement)
+
+        _ <- exercise allocationCid (Allocation_ExecuteTransfer extraArgs)
+        archive agreementCid
+
+        create PaymentPrepared with
+          terms
+          eligibilityAttestationCid
+          settleBefore
+          paymentRef = requestId
+
+    interface instance AllocationRequest for TokenizedPaymentRequest where
+      view = tokenizedPaymentRequestView this
+
+      allocationRequest_RejectImpl _ AllocationRequest_Reject{..} = do
+        require "Only the paying investor may reject the request"
+          (actor == terms.investor)
+        pure ChoiceExecutionMetadata with meta = emptyMetadata
+
+      allocationRequest_WithdrawImpl _ _ =
+        pure ChoiceExecutionMetadata with meta = emptyMetadata
+
+tokenizedPaymentRequestView
+  : TokenizedPaymentRequest
+  -> AllocationRequestView
+tokenizedPaymentRequestView TokenizedPaymentRequest{..} =
+  let meta = Metadata with
+        values = TextMap.fromList
+          [ ("regulated-settlement.example/reason", "purchase-payment")
+          , ("regulated-settlement.example/asset-id", terms.assetId)
+          ]
+  in AllocationRequestView with
+    settlement = SettlementInfo with
+      executor = terms.issuer
+      settlementRef = Reference with
+        id = requestId
+        cid = Some (coerceContractId agreementCid)
+      requestedAt
+      allocateBefore
+      settleBefore
+      meta
+    transferLegs = TextMap.fromList
+      [ (paymentLegId, TransferLeg with
+          sender = terms.investor
+          receiver = terms.issuer
+          amount = terms.paymentAmount
+          instrumentId = paymentInstrumentId
+          meta)
+      ]
+    meta

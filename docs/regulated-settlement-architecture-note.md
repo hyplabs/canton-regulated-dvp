@@ -74,7 +74,8 @@ ledger time to be strictly before `settleBefore`.
 
 ## V1 Boundary
 
-`paymentRef` and `deliveryRef` are evidence identifiers. V2 should replace or
-back them with Canton token-standard allocation contracts and atomically execute
-the payment and asset legs. Until then, the accurate description is
-"compliance-gated settlement workflow," not completed DvP.
+`paymentRef` and `deliveryRef` are evidence identifiers in the V1 path. The first
+V2 slice now backs `paymentRef` with execution of an exact Canton Token Standard
+`Allocation`; see `tokenized-payment-architecture.md`. Delivery remains an
+evidence reference, so the accurate description is still "compliance-gated
+settlement with token-standard payment," not completed DvP.

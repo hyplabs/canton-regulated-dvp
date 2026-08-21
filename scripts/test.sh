@@ -26,6 +26,7 @@ export JAVA_HOME
 JAVA_HOME=$(cd "$(dirname "$canton_java_bin")/.." && pwd)
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd "$canton_repo_root/daml/tests"
-"$canton_dpm_bin" build
-"$canton_dpm_bin" test --show-coverage "$@"
+cd "$canton_repo_root/daml"
+"$canton_dpm_bin" build --all
+"$canton_dpm_bin" test --package-root tests --show-coverage "$@"
+"$canton_dpm_bin" test --package-root tokenized-tests --show-coverage "$@"

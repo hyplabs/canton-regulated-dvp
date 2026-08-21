@@ -7,13 +7,16 @@ Date: 2026-08-20
 - [x] Install DPM and Daml SDK.
 - [x] Align with SDK `3.5.2` used by the Quickstart snapshot.
 - [x] Separate uploadable model and script/test packages.
-- [x] Build both DARs locally.
+- [x] Build both production and both test DARs locally.
 - [x] Execute happy and negative Daml scripts.
 - [x] Document contract authority and visibility.
+- [x] Add a pinned GitHub Actions build and test workflow.
 - [ ] Verify setup from a clean second machine or CI runner.
 
 ## Canton Runtime
 
+- [x] Verify Docker and host resource prerequisites.
+- [ ] Start or connect the Docker daemon on this workstation.
 - [ ] Start Canton Quickstart/LocalNet.
 - [ ] Upload the model DAR to the local participant.
 - [ ] Allocate/map application parties.
@@ -22,11 +25,13 @@ Date: 2026-08-20
 
 ## Token Standard
 
-- [ ] Define payment and asset instrument IDs.
-- [ ] Map settlement to allocation requests and transfer legs.
-- [ ] Validate allocations against the settlement reference and deadline.
+- [x] Define the payment instrument ID; asset instrument remains open.
+- [x] Map payment settlement to an allocation request and transfer leg.
+- [x] Validate payment allocations against exact leg and settlement data.
+- [x] Execute payment allocation atomically with workflow advancement.
 - [ ] Execute payment and delivery atomically.
-- [ ] Add failure tests for missing, mismatched, and expired allocations.
+- [x] Add local failure tests for mismatched, inactive, and expired allocations.
+- [ ] Repeat allocation failure coverage against the LocalNet registry.
 
 ## DevNet Operations
 
@@ -42,4 +47,4 @@ Date: 2026-08-20
 - [ ] Tag a reviewed demo commit.
 - [ ] Publish build and test output.
 - [ ] Record the stakeholder walkthrough.
-- [ ] Document known V1 limitations and V2 owners.
+- [x] Document known V1 and current V2 limitations.

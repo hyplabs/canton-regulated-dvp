@@ -169,15 +169,155 @@ Useful examples:
 - `testIssuerAndInvestorCannotBypassVerifier`
 - `testOfferVisibilityIsScoped`
 
-## 10. What V2 Will Teach
+## 10. DAR Data Dependencies
 
-The next Daml concepts should come from token-standard integration:
+The V2 model is a separate Daml package. Its `daml.yaml` imports both our V1
+model DAR and four Canton Token Standard API DARs:
 
-- Interfaces and interface contract IDs.
-- Data dependencies on token-standard DARs.
-- Allocation requests and transfer legs.
-- Settlement references and allocation deadlines.
-- Atomic execution of payment and delivery transfers.
+```yaml
+data-dependencies:
+  - ../model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
+  - ../vendor/splice-api-token-allocation-v1-1.0.0.dar
+  - ../vendor/splice-api-token-allocation-request-v1-1.0.0.dar
+```
 
-The official sibling reference is
-`../resources/cn-quickstart/quickstart/daml/licensing` from the repository root.
+A source dependency lets the compiler build another package's source. A data
+dependency instead says, "compile against the public Daml-LF API in this DAR."
+That is how an app can integrate with a published standard without owning or
+copying its source modules.
+
+The vendored API DARs are pinned binary inputs, not production token contracts.
+They define types and interfaces; a registry supplies templates that implement
+those interfaces at runtime.
+
+## 11. Interfaces Describe Shared Behavior
+
+A Daml template is one concrete contract type. An interface describes behavior
+that many unrelated templates can implement. Our app template declares:
+
+```daml
+interface instance AllocationRequest for TokenizedPaymentRequest where
+  view = tokenizedPaymentRequestView this
+```
+
+This means a standard wallet can discover our app-specific request as an
+`AllocationRequest`, even though it knows nothing about
+`TokenizedPaymentRequest` itself.
+
+The interface view is the common data projection exposed to that wallet:
+
+```daml
+AllocationRequestView with
+  settlement = SettlementInfo with ...
+  transferLegs = TextMap.fromList [(paymentLegId, paymentLeg)]
+  meta
+```
+
+Our request has one leg: investor sends the configured payment amount to the
+issuer. `TextMap` gives each leg a stable textual ID so allocations can identify
+which part of a multi-leg settlement they fund.
+
+## 12. Interface Contract IDs
+
+The completion choice accepts this type:
+
+```daml
+allocationCid : ContractId Allocation
+```
+
+That is an interface contract ID, not the ID of one concrete token template.
+Any active contract implementing `Allocation` can be supplied. The model reads
+it through the interface:
+
+```daml
+allocation <- fetch @Allocation allocationCid
+let allocationView = view @Allocation allocation
+```
+
+Tests create a concrete `MockAllocation` and convert its ID with
+`toInterfaceContractId`. A LocalNet integration will pass the ID of a real
+registry allocation through exactly the same choice argument.
+
+## 13. Never Trust A Contract ID By Type Alone
+
+The interface type proves that the contract supports allocation behavior. It
+does not prove that it funds this purchase. The model therefore compares:
+
+- `transferLegId` against the expected `payment` leg ID.
+- The complete `TransferLeg`, including sender, receiver, amount, and instrument.
+- The complete `SettlementInfo`, including request ID, agreement contract ID,
+  and both deadlines.
+
+Only after all three match does it execute:
+
+```daml
+_ <- exercise allocationCid (Allocation_ExecuteTransfer extraArgs)
+```
+
+`testMismatchedAllocationCannotAdvanceWorkflow` changes the amount by one unit.
+The interface type is still correct, but the business identity is wrong, so the
+transaction fails.
+
+## 14. One Transaction Composes Multiple Contracts
+
+`CompleteTokenizedPayment` is `postconsuming`. On success it consumes the
+request after its body has:
+
+1. Fetched and checked the agreement and eligibility attestation.
+2. Exercised the allocation's transfer choice.
+3. Archived the V1 `PurchaseAgreement`.
+4. Created `PaymentPrepared`.
+
+Daml transactions are atomic. If allocation execution or any validation fails,
+none of those effects commit. The mismatch test queries the allocation,
+agreement, and request afterward and proves all three remain active. It also
+proves that no mock transfer receipt was created.
+
+This is stronger than application code that performs a transfer and then makes
+a second API call to update workflow state. There is no committed intermediate
+state where only one side happened.
+
+## 15. Authority Can Be Granted In Advance
+
+The tokenized request is signed by issuer, investor, and verifier. Its completion
+choice is controlled by issuer and verifier:
+
+```daml
+signatory terms.issuer, terms.investor, terms.verifier
+controller terms.issuer, terms.verifier
+```
+
+The investor authorizes the request when it is created. That parent authority is
+available to the direct child allocation exercise, whose standard controllers
+include sender, receiver, and executor. The verifier remains a required
+controller for the app-level compliance gate.
+
+The wrong-party test submits as the investor alone. It fails because prior
+authorization does not let the investor impersonate the issuer and verifier who
+control completion.
+
+## 16. Test Implementations Versus Real Registries
+
+`MockAllocation` is deliberately small: it implements the real standard
+interface, consumes itself on execution, and creates a receipt. It does not
+track balances, lock holdings, calculate fees, or represent a production token.
+
+That distinction lets the tests answer one precise question now: "Does our app
+integrate with any conforming allocation contract correctly?" The next LocalNet
+step answers a different question: "Can a real wallet and token registry fund
+and execute this request end to end?"
+
+The official comparison implementation is
+`../resources/cn-quickstart/quickstart/daml/licensing`, and the fuller DvP
+example is in the sibling Quickstart token-standard test sources.
+
+## 17. Small Language Notes From This Slice
+
+- `@Allocation` is visible type application: it tells polymorphic functions
+  such as `fetch` and `view` which interface type to use.
+- `fromSome` unwraps the expected transfer leg from `TextMap.lookup`. It is safe
+  here because the same pure view function always inserts that key.
+- `this` is the current template value inside a choice or interface instance.
+- `with` performs record construction and record update.
+- `agreement` is reserved template syntax in Daml, so the local fetched value is
+  named `purchaseAgreement`.

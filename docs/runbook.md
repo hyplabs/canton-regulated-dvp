@@ -29,17 +29,20 @@ From the repository root:
 ./scripts/test.sh
 ```
 
-The script builds the model DAR first, then the test DAR, then executes all Daml
-Script declarations. Expected result: 13 scripts report `ok`.
+The script builds all four packages in dependency order, then executes both Daml
+Script test packages. Expected result: 13 V1 and 7 V2 scripts report `ok`.
 
 Generated DARs:
 
 ```text
 daml/model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
 daml/tests/.daml/dist/canton-regulated-settlement-tests-0.1.0.dar
+daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.1.0.dar
+daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.1.0.dar
 ```
 
-Only the model DAR is intended for upload to a participant.
+Only the two `*-model` DARs are intended for upload to a participant. The test
+DARs include `daml-script` and test-only templates.
 
 ## Run One Script
 
@@ -56,6 +59,14 @@ dpm test -p PaymentCanOnlyBePreparedOnce
 dpm test -p Bypass
 ```
 
+Run the tokenized demo or one V2 failure case from its test package:
+
+```bash
+cd ../tokenized-tests
+dpm test -p setupTokenizedPaymentDemo
+dpm test -p MismatchedAllocation
+```
+
 ## Common Failures
 
 `java: command not found` means JDK 21 is missing or not discoverable. Use the
@@ -65,5 +76,9 @@ An error loading `java.security` usually means a Debian/Ubuntu JRE package was
 extracted without its `/etc/java-21-openjdk` configuration links. Prefer a normal
 JDK installation or a complete Temurin archive on a clean machine.
 
-If the test package cannot find the model DAR, run `dpm build` from
-`daml/tests`; the parent `multi-package.yaml` establishes the build order.
+If a test package cannot find a model DAR, run `dpm build --all` from `daml`;
+the local `multi-package.yaml` establishes the build order.
+
+The Token Standard API DARs are checked into `daml/vendor` so builds do not
+depend on the sibling research repositories. Their origin, license, commit, and
+checksums are recorded in `THIRD_PARTY_NOTICES.md`.
