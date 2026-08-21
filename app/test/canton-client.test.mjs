@@ -5,6 +5,7 @@ import {
   CantonClient,
   extractCreatedEvent,
   validateAttestationInput,
+  validateDeliveryInput,
   validateOfferInput,
 } from "../lib/canton-client.mjs";
 
@@ -77,6 +78,16 @@ test("rejects an offer whose settlement deadline precedes offer expiry", () => {
         settleInHours: 1,
       }),
     (error) => error instanceof CantonApiError && error.code === "INVALID_DEADLINE_ORDER",
+  );
+});
+
+test("validates a custodian delivery reference", () => {
+  assert.deepEqual(validateDeliveryInput({ deliveryRef: " CUSTODY/PC-2026-001 " }), {
+    deliveryRef: "CUSTODY/PC-2026-001",
+  });
+  assert.throws(
+    () => validateDeliveryInput({ deliveryRef: "x" }),
+    (error) => error instanceof CantonApiError && error.code === "INVALID_DELIVERY_REFERENCE",
   );
 });
 
@@ -787,4 +798,77 @@ test("executes an allocation atomically and returns consumed contract evidence",
   assert.equal(result.paymentPrepared.balanceEvidence.investorLockedReleased, "10");
   assert.equal(result.paymentPrepared.balanceEvidence.issuerReceived, "10");
   assert.equal(result.paymentPrepared.balanceEvidence.verified, true);
+});
+
+test("confirms delivery as custodian and returns an archived prepared payment", async () => {
+  const preparedContractId = "00prepared1234567890";
+  const readyContractId = "00ready12345678901234";
+  const terms = {
+    issuer: context.providerParty,
+    investor: context.investorParty,
+    verifier: context.providerParty,
+    custodian: context.providerParty,
+    auditor: context.providerParty,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  };
+  const preparedPayload = {
+    terms,
+    eligibilityAttestationCid: contractId,
+    settleBefore: "2099-08-21T22:00:00Z",
+    paymentRef: "regulated-ui-request",
+  };
+  let confirmed = false;
+  let submission;
+  const fetchImpl = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (url.endsWith("/v2/commands/submit-and-wait-for-transaction")) {
+      submission = { url, options, body };
+      confirmed = true;
+      return jsonResponse({
+        transaction: {
+          events: [
+            {
+              CreatedEvent: {
+                contractId: readyContractId,
+                templateId: "pkg:Settlement.Regulated:ReadyToSettle",
+              },
+            },
+          ],
+        },
+      });
+    }
+    if (body.contractId === preparedContractId) {
+      return jsonResponse({
+        created: { createdEvent: { contractId: preparedContractId, createArgument: preparedPayload } },
+        archived: confirmed ? { archivedEvent: { contractId: preparedContractId } } : null,
+      });
+    }
+    assert.equal(body.contractId, readyContractId);
+    return jsonResponse({
+      created: {
+        createdEvent: {
+          contractId: readyContractId,
+          createArgument: { ...preparedPayload, deliveryRef: "CUSTODY/PC-2026-001" },
+        },
+      },
+      archived: null,
+    });
+  };
+  const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
+
+  const result = await client.confirmDelivery(preparedContractId, {
+    deliveryRef: "CUSTODY/PC-2026-001",
+  });
+
+  const command = submission.body.commands.commands[0].ExerciseCommand;
+  assert.equal(command.choice, "ConfirmDelivery");
+  assert.deepEqual(command.choiceArgument, { deliveryRef: "CUSTODY/PC-2026-001" });
+  assert.deepEqual(submission.body.commands.actAs, [context.providerParty]);
+  assert.equal(result.paymentPrepared.status, "archived");
+  assert.equal(result.readyToSettle.status, "active");
+  assert.equal(result.readyToSettle.deliveryRef, "CUSTODY/PC-2026-001");
 });

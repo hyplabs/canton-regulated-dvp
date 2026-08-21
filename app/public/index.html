@@ -97,7 +97,7 @@
             </li>
             <li class="timeline-step" data-stage="receipt">
               <span class="step-index"><i data-lucide="receipt-text"></i></span>
-              <div><strong>Receipt</strong><span>Locked</span></div>
+              <div><strong>Receipt</strong><span id="receipt-step-label">Locked</span></div>
             </li>
           </ol>
         </section>
@@ -206,6 +206,21 @@
             </button>
           </div>
 
+          <div id="delivery-confirmation-panel" class="action-confirmation" hidden>
+            <dl>
+              <div><dt>Asset</dt><dd id="delivery-action-asset"></dd></div>
+              <div><dt>Quantity</dt><dd id="delivery-action-quantity"></dd></div>
+              <div><dt>Paid</dt><dd id="delivery-action-payment"></dd></div>
+            </dl>
+            <label class="action-input">
+              <span>Delivery reference</span>
+              <input id="delivery-reference" type="text" value="CUSTODY/PC-2026-001" maxlength="80" />
+            </label>
+            <button id="confirm-delivery-button" class="primary-button" type="button" disabled>
+              <i data-lucide="package-check"></i><span>Confirm delivery</span>
+            </button>
+          </div>
+
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -235,6 +250,7 @@
           <button type="button" role="tab" data-contract-kind="paymentRequest" disabled>Request</button>
           <button type="button" role="tab" data-contract-kind="allocation" disabled>Allocation</button>
           <button type="button" role="tab" data-contract-kind="paymentPrepared" disabled>Prepared</button>
+          <button type="button" role="tab" data-contract-kind="readyToSettle" disabled>Ready</button>
         </div>
 
         <div id="inspector-empty" class="inspector-empty">

@@ -81,12 +81,12 @@ Start the stakeholder app with `npm run app`, open
 6. Verifier approves the payment request.
 7. Investor accepts the request and allocates 10 Canton Coin.
 8. Issuer executes the atomic payment.
+9. Custodian confirms the delivery reference.
 
-At `PaymentPrepared`, show the green Payment step, pending Delivery step, exact
-wallet movement, and the inspector tabs. The Request, Agreement, and Allocation
-tabs are archived; Prepared is active. This is the recommended visual path. The
-terminal walkthrough below adds the wrong-party rejection, custodian action,
-and final receipt.
+At `ReadyToSettle`, show the green Payment and Delivery steps, pending Receipt
+step, and the inspector tabs. The Request, Agreement, Allocation, and Prepared
+tabs are archived; Ready is active. This is the recommended visual path. The
+terminal walkthrough below adds the wrong-party rejection and final receipt.
 
 ## Full Workflow Command
 

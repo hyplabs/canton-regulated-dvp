@@ -267,6 +267,31 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const confirmDeliveryMatch = url.pathname.match(
+        /^\/api\/payment-prepared\/([^/]+)\/confirm-delivery$/,
+      );
+      if (request.method === "POST" && confirmDeliveryMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.confirmDelivery(
+            decodeURIComponent(confirmDeliveryMatch[1]),
+            await readJson(request),
+          ),
+        );
+        return;
+      }
+
+      const readyToSettleMatch = url.pathname.match(/^\/api\/ready-to-settle\/([^/]+)$/);
+      if (request.method === "GET" && readyToSettleMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getReadyToSettle(decodeURIComponent(readyToSettleMatch[1])),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {

@@ -512,3 +512,16 @@ purchase agreement, and creates `PaymentPrepared`. Canton commits every effect
 together. The UI re-queries all four contracts after submission and reports
 wallet snapshots as supporting evidence; those balances are not persisted as
 workflow truth.
+
+## 27. Evidence References Advance The State Machine
+
+`ConfirmDelivery` is a consuming choice on `PaymentPrepared`. Its controller is
+the custodian, and its `deliveryRef` argument must be non-empty. A successful
+exercise archives the paid state and creates `ReadyToSettle` with both the
+payment and delivery references.
+
+The reference is evidence metadata, not a token transfer. This keeps the POC's
+scope honest: Canton Coin is real, while note delivery is represented by the
+custodian's external-system reference. The UI asks the custodian for that value
+and then re-queries both contracts, so the 5-of-6 timeline state comes from the
+ledger transition rather than from the input field.

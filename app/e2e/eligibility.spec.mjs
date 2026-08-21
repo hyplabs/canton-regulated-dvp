@@ -135,6 +135,18 @@ const paymentPrepared = {
   },
 };
 
+const readyToSettle = {
+  kind: "readyToSettle",
+  contractId: "00ready1234567890abcdef1234567890",
+  templateId: "pkg:Settlement.Regulated:ReadyToSettle",
+  status: "active",
+  terms: offer.terms,
+  eligibilityAttestationCid: attestation.contractId,
+  settleBefore: paymentRequest.settleBefore,
+  paymentRef: paymentRequest.requestId,
+  deliveryRef: "CUSTODY/PC-2026-001",
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -196,7 +208,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("roles advance eligibility through atomic Canton Coin payment", async ({ page }) => {
+test("roles advance payment through custodian delivery evidence", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -265,6 +277,17 @@ test("roles advance eligibility through atomic Canton Coin payment", async ({ pa
       },
     });
   });
+  await page.route("**/api/payment-prepared/*/confirm-delivery", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      deliveryRef: "CUSTODY/PC-2026-001",
+    });
+    await route.fulfill({
+      json: {
+        paymentPrepared: { ...paymentPrepared, status: "archived" },
+        readyToSettle,
+      },
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Issue attestation" }).click();
@@ -328,4 +351,14 @@ test("roles advance eligibility through atomic Canton Coin payment", async ({ pa
   await expect(page.getByText("Archived Canton Coin allocation contract", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "Request" }).click();
   await expect(page.getByText("Archived payment request contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Custodian" }).click();
+  await expect(page.getByLabel("Delivery reference")).toHaveValue("CUSTODY/PC-2026-001");
+  await page.getByRole("button", { name: "Confirm delivery" }).click();
+  await expect(page.locator("#scenario-status")).toContainText("Delivery confirmed");
+  await expect(page.getByText("5 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active settlement-ready contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("CUSTODY/PC-2026-001");
+  await page.getByRole("tab", { name: "Prepared" }).click();
+  await expect(page.getByText("Archived prepared payment contract", { exact: true })).toBeVisible();
 });

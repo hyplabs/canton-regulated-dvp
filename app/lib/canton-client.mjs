@@ -150,6 +150,17 @@ export function validateOfferInput(input = {}) {
   };
 }
 
+export function validateDeliveryInput(input = {}) {
+  const deliveryRef = typeof input.deliveryRef === "string" ? input.deliveryRef.trim() : "";
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._:/-]{1,79}$/.test(deliveryRef)) {
+    throw new CantonApiError(
+      "Delivery reference must contain 2-80 letters, numbers, spaces, or reference punctuation.",
+      { status: 400, code: "INVALID_DELIVERY_REFERENCE" },
+    );
+  }
+  return { deliveryRef };
+}
+
 export function extractCreatedEvent(transactionResponse, templateSuffix) {
   const events = transactionResponse?.transaction?.events ?? [];
   const event = events
@@ -913,6 +924,58 @@ export class CantonClient {
       eligibilityAttestationCid: payload.eligibilityAttestationCid,
       settleBefore: payload.settleBefore,
       paymentRef: payload.paymentRef,
+    };
+  }
+
+  async confirmDelivery(paymentPreparedContractId, input = {}) {
+    validateContractId(paymentPreparedContractId);
+    const { deliveryRef } = validateDeliveryInput(input);
+    const [context, paymentPrepared] = await Promise.all([
+      this.getContext(),
+      this.getPaymentPrepared(paymentPreparedContractId),
+    ]);
+    if (paymentPrepared.status !== "active") {
+      throw new CantonApiError("Prepared payment is not active.", {
+        status: 409,
+        code: "PAYMENT_PREPARED_INACTIVE",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: templateId("PaymentPrepared"),
+          contractId: paymentPreparedContractId,
+          choice: "ConfirmDelivery",
+          choiceArgument: { deliveryRef },
+        },
+      },
+      commandName: "ui-confirm-delivery",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const created = extractCreatedEvent(transaction, ":Settlement.Regulated:ReadyToSettle");
+    const [archivedPaymentPrepared, readyToSettle] = await Promise.all([
+      this.getPaymentPrepared(paymentPreparedContractId),
+      this.getReadyToSettle(created.contractId),
+    ]);
+    return { paymentPrepared: archivedPaymentPrepared, readyToSettle };
+  }
+
+  async getReadyToSettle(contractId) {
+    const contract = await this.getContract(contractId, "settlement ready for finalization");
+    const { created, payload } = contract;
+    return {
+      kind: "readyToSettle",
+      contractId,
+      templateId: created.templateId ?? templateId("ReadyToSettle"),
+      status: contract.status,
+      terms: payload.terms,
+      eligibilityAttestationCid: payload.eligibilityAttestationCid,
+      settleBefore: payload.settleBefore,
+      paymentRef: payload.paymentRef,
+      deliveryRef: payload.deliveryRef,
     };
   }
 
