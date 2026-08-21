@@ -28,6 +28,7 @@ Date range: 2026-08-20 to 2026-08-27
 - Added Node and Playwright coverage for the backend mapping and browser states.
 - Extended the UI through issuer offer creation and investor acceptance using
   separate LocalNet participants.
+- Added verifier compliance approval and active purchase-agreement evidence.
 
 ## Next: Complete V2
 
@@ -40,7 +41,7 @@ Date range: 2026-08-20 to 2026-08-27
 1. Completed: add a backend that submits verifier commands without exposing
    participant tokens to the browser.
 2. In progress: extend the role-based workflow UI one ledger transition at a
-   time; `CompliancePending` is now reached.
+   time; `PurchaseAgreement` is now reached.
 3. Demonstrate successful settlement and withdrawn-eligibility failure.
 4. Capture a three-to-five-minute walkthrough.
 

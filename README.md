@@ -12,7 +12,9 @@ Canton Coin and separate app-provider/app-user participants.
 The V3 browser UI is backed by the real JSON Ledger API. A verifier creates an
 `EligibilityAttestation`, the issuer creates an `AssetOffer`, and the investor
 exercises `AcceptOffer` through its own participant. The UI then shows the
-archived offer and active `CompliancePending` contract returned by Canton.
+archived offer and active `CompliancePending` contract returned by Canton. The
+verifier can approve that review to create the jointly signed
+`PurchaseAgreement`.
 
 This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
 small allocation implementation, while the LocalNet path uses the real Canton
@@ -165,7 +167,7 @@ The exact real-registry handoff is in
 - The repeatable LocalNet runner verifies consumed request/allocation state,
   final receipt creation, sender/receiver balance changes, and atomic rejection
   of an investor's unauthorized settlement attempt.
-- The V3 UI reaches `CompliancePending` through real provider and app-user
+- The V3 UI reaches `PurchaseAgreement` through real provider and app-user
   submissions; participant credentials remain in the local backend.
 - JDK 21 is provisioned locally for this workspace.
 - A tokenized delivery leg, broader LocalNet failure coverage, and the

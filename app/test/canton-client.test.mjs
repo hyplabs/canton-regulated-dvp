@@ -325,3 +325,82 @@ test("accepts an offer as the investor and returns the archived parent", async (
     "AcceptOffer",
   );
 });
+
+test("approves compliance as verifier and creates a purchase agreement", async () => {
+  const complianceContractId = "00compliance123456";
+  const agreementContractId = "00agreement1234567";
+  let approved = false;
+  let submitRequest;
+  const terms = {
+    issuer: context.providerParty,
+    investor: context.investorParty,
+    verifier: context.providerParty,
+    custodian: context.providerParty,
+    auditor: context.providerParty,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  };
+  const fetchImpl = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (url.endsWith("/v2/commands/submit-and-wait-for-transaction")) {
+      approved = true;
+      submitRequest = { url, options, body };
+      return jsonResponse({
+        transaction: {
+          events: [
+            {
+              CreatedEvent: {
+                contractId: agreementContractId,
+                templateId: "pkg:Settlement.Regulated:PurchaseAgreement",
+              },
+            },
+          ],
+        },
+      });
+    }
+    if (body.contractId === complianceContractId) {
+      return jsonResponse({
+        created: {
+          createdEvent: {
+            contractId: complianceContractId,
+            createArgument: {
+              terms,
+              eligibilityAttestationCid: contractId,
+              settleBefore: "2026-08-22T00:00:00Z",
+            },
+          },
+        },
+        archived: approved ? { archivedEvent: { contractId: complianceContractId } } : null,
+      });
+    }
+    return jsonResponse({
+      created: {
+        createdEvent: {
+          contractId: agreementContractId,
+          createArgument: {
+            terms,
+            eligibilityAttestationCid: contractId,
+            settleBefore: "2026-08-22T00:00:00Z",
+          },
+        },
+      },
+      archived: null,
+    });
+  };
+  const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
+
+  const result = await client.approveCompliance(complianceContractId);
+
+  assert.equal(result.compliancePending.status, "archived");
+  assert.equal(result.purchaseAgreement.status, "active");
+  assert.equal(submitRequest.url, "http://127.0.0.1:3975/v2/commands/submit-and-wait-for-transaction");
+  assert.equal(submitRequest.options.headers.Authorization, "Bearer provider-token");
+  assert.deepEqual(submitRequest.body.commands.actAs, [context.providerParty]);
+  assert.equal(
+    submitRequest.body.commands.commands[0].ExerciseCommand.choice,
+    "ApproveCompliance",
+  );
+});

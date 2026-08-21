@@ -89,7 +89,7 @@
             </li>
             <li class="timeline-step" data-stage="payment">
               <span class="step-index"><i data-lucide="coins"></i></span>
-              <div><strong>Payment</strong><span>Locked</span></div>
+              <div><strong>Payment</strong><span id="payment-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="delivery">
               <span class="step-index"><i data-lucide="package-check"></i></span>
@@ -182,6 +182,18 @@
             </button>
           </div>
 
+          <div id="approve-compliance-panel" class="action-confirmation" hidden>
+            <dl>
+              <div><dt>Asset</dt><dd id="approve-asset"></dd></div>
+              <div><dt>Quantity</dt><dd id="approve-units"></dd></div>
+              <div><dt>Payment</dt><dd id="approve-payment"></dd></div>
+              <div><dt>Settle before</dt><dd id="approve-deadline"></dd></div>
+            </dl>
+            <button id="approve-compliance-button" class="primary-button" type="button" disabled>
+              <i data-lucide="clipboard-check"></i><span>Approve compliance</span>
+            </button>
+          </div>
+
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -205,6 +217,7 @@
           <button type="button" role="tab" data-contract-kind="attestation" disabled>Eligibility</button>
           <button type="button" role="tab" data-contract-kind="offer" disabled>Offer</button>
           <button type="button" role="tab" data-contract-kind="compliance" disabled>Compliance</button>
+          <button type="button" role="tab" data-contract-kind="agreement" disabled>Agreement</button>
         </div>
 
         <div id="inspector-empty" class="inspector-empty">

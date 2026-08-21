@@ -127,6 +127,28 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const approveComplianceMatch = url.pathname.match(
+        /^\/api\/compliance-pending\/([^/]+)\/approve$/,
+      );
+      if (request.method === "POST" && approveComplianceMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.approveCompliance(decodeURIComponent(approveComplianceMatch[1])),
+        );
+        return;
+      }
+
+      const agreementMatch = url.pathname.match(/^\/api\/agreements\/([^/]+)$/);
+      if (request.method === "GET" && agreementMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getPurchaseAgreement(decodeURIComponent(agreementMatch[1])),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {

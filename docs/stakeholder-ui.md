@@ -10,9 +10,10 @@ The current workflow supports:
 1. Verifier creates `EligibilityAttestation` as the LocalNet provider party.
 2. Issuer creates `AssetOffer` with units, payment, and deadlines.
 3. Investor exercises `AcceptOffer` through the app-user participant.
-4. The timeline advances to `CompliancePending`.
-5. The inspector shows the active attestation, archived offer, and active
-   compliance contract from fresh Ledger API queries.
+4. Verifier exercises `ApproveCompliance` through the provider participant.
+5. The timeline advances to `PurchaseAgreement`.
+6. The inspector shows the active attestation and agreement alongside the
+   archived offer and compliance review from fresh Ledger API queries.
 
 Custodian and auditor views remain read-only until their corresponding ledger
 transitions are implemented.
@@ -28,6 +29,8 @@ The browser calls only the local backend:
 - `GET /api/offers/:contractId`
 - `POST /api/offers/:contractId/accept`
 - `GET /api/compliance-pending/:contractId`
+- `POST /api/compliance-pending/:contractId/approve`
+- `GET /api/agreements/:contractId`
 
 The backend retrieves participant context from the Quickstart onboarding
 container. Issuer and verifier commands use the provider Ledger API on
@@ -62,12 +65,12 @@ layout.
 
 ## Next Extension
 
-Add verifier compliance approval as the next stateful action:
+Add tokenized payment authorization as the next stateful milestone:
 
-1. Verifier exercises `ApproveCompliance` on the active `CompliancePending`.
-2. Canton archives the pending contract and creates `PurchaseAgreement`.
-3. The timeline marks Compliance complete and Payment current.
-4. The inspector retains both the archived review and active agreement.
+1. Issuer creates `TokenizedPaymentProposal` for the agreement.
+2. Verifier exercises `ApproveTokenizedPayment`.
+3. Investor exercises `AcceptTokenizedPayment` through the app-user participant.
+4. The standard wallet discovers the resulting `TokenizedPaymentRequest`.
 
 Continue this pattern for each transition. Every visible state change must come
 from a transaction response or a fresh contract query; the frontend must not

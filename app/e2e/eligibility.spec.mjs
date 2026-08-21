@@ -52,6 +52,16 @@ const compliancePending = {
   settleBefore: offer.settleBefore,
 };
 
+const purchaseAgreement = {
+  kind: "agreement",
+  contractId: "00agreement1234567890abcdef123456",
+  templateId: "pkg:Settlement.Regulated:PurchaseAgreement",
+  status: "active",
+  terms: offer.terms,
+  eligibilityAttestationCid: attestation.contractId,
+  settleBefore: offer.settleBefore,
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -113,7 +123,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("issuer creates an offer and investor advances it to compliance", async ({ page }) => {
+test("roles advance eligibility through an approved purchase agreement", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -134,6 +144,15 @@ test("issuer creates an offer and investor advances it to compliance", async ({ 
       json: { offer: { ...offer, status: "archived" }, compliancePending },
     });
   });
+  await page.route("**/api/compliance-pending/*/approve", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        compliancePending: { ...compliancePending, status: "archived" },
+        purchaseAgreement,
+      },
+    });
+  });
   await page.goto("/");
 
   await page.getByRole("button", { name: "Issue attestation" }).click();
@@ -152,4 +171,14 @@ test("issuer creates an offer and investor advances it to compliance", async ({ 
 
   await page.getByRole("tab", { name: "Offer" }).click();
   await expect(page.getByText("Archived offer contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Verifier" }).click();
+  await expect(page.getByRole("button", { name: "Approve compliance" })).toBeEnabled();
+  await page.getByRole("button", { name: "Approve compliance" }).click();
+  await expect(page.getByText("Agreement active", { exact: true })).toBeVisible();
+  await expect(page.getByText("3 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active agreement contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("tab", { name: "Compliance" }).click();
+  await expect(page.getByText("Archived compliance contract", { exact: true })).toBeVisible();
 });

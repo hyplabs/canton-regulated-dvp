@@ -430,3 +430,24 @@ That is why the browser backend sends offer creation to the provider Ledger API
 and acceptance to the app-user Ledger API. After acceptance, a fresh query shows
 the offer archived and `CompliancePending` active. The two visible changes are
 parts of one atomic Daml transaction.
+
+## 23. Approval Accumulates A Third Party's Authority
+
+`CompliancePending` already has issuer and investor as signatories. Its
+`ApproveCompliance` choice is controlled by the verifier:
+
+```daml
+choice ApproveCompliance : ContractId PurchaseAgreement
+  controller terms.verifier
+```
+
+The resulting `PurchaseAgreement` names issuer, investor, and verifier as
+signatories. As with offer acceptance, the parent contract supplies existing
+signatory authority and the choice controller contributes the additional
+party. The provider participant can submit the choice because it hosts the
+verifier in minimal LocalNet.
+
+The UI does not relabel `CompliancePending` as approved in memory. It re-queries
+that contract to confirm its archive event and independently queries the new
+agreement's created event. This keeps the visual timeline subordinate to Daml's
+actual transaction result.

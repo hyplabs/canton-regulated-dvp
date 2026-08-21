@@ -8,6 +8,7 @@ const state = {
     attestation: null,
     offer: null,
     compliance: null,
+    agreement: null,
   },
   selectedKind: null,
   busy: false,
@@ -49,9 +50,11 @@ const elements = {
   attestationForm: document.querySelector("#attestation-form"),
   offerForm: document.querySelector("#offer-form"),
   acceptOfferPanel: document.querySelector("#accept-offer-panel"),
+  approveCompliancePanel: document.querySelector("#approve-compliance-panel"),
   issueButton: document.querySelector("#issue-button"),
   createOfferButton: document.querySelector("#create-offer-button"),
   acceptOfferButton: document.querySelector("#accept-offer-button"),
+  approveComplianceButton: document.querySelector("#approve-compliance-button"),
   roleEmptyState: document.querySelector("#role-empty-state"),
   emptyStateCopy: document.querySelector("#empty-state-copy"),
   roleName: document.querySelector("#role-name"),
@@ -63,9 +66,11 @@ const elements = {
   eligibilityStep: document.querySelector('[data-stage="eligibility"]'),
   offerStep: document.querySelector('[data-stage="offer"]'),
   complianceStep: document.querySelector('[data-stage="compliance"]'),
+  paymentStep: document.querySelector('[data-stage="payment"]'),
   eligibilityStepLabel: document.querySelector("#eligibility-step-label"),
   offerStepLabel: document.querySelector("#offer-step-label"),
   complianceStepLabel: document.querySelector("#compliance-step-label"),
+  paymentStepLabel: document.querySelector("#payment-step-label"),
   inspectorEmpty: document.querySelector("#inspector-empty"),
   contractDetails: document.querySelector("#contract-details"),
   contractTabs: document.querySelector("#contract-tabs"),
@@ -116,6 +121,7 @@ function showToast(message, tone = "success") {
 }
 
 function phase() {
+  if (state.contracts.agreement?.status === "active") return "agreement";
   if (state.contracts.compliance?.status === "active") return "compliance";
   if (state.contracts.offer?.status === "active") return "offer";
   if (state.contracts.attestation?.status === "active") return "eligibility";
@@ -127,6 +133,7 @@ function currentAction() {
   if (currentPhase === "empty" && state.role === "verifier") return "attestation";
   if (currentPhase === "eligibility" && state.role === "issuer") return "offer";
   if (currentPhase === "offer" && state.role === "investor") return "accept-offer";
+  if (currentPhase === "compliance" && state.role === "verifier") return "approve-compliance";
   return null;
 }
 
@@ -151,6 +158,7 @@ function setBusy(busy) {
   elements.issueButton.disabled = !enabled || action !== "attestation";
   elements.createOfferButton.disabled = !enabled || action !== "offer";
   elements.acceptOfferButton.disabled = !enabled || action !== "accept-offer";
+  elements.approveComplianceButton.disabled = !enabled || action !== "approve-compliance";
   elements.refreshButton.disabled = busy || !state.selectedKind;
 
   elements.issueButton.innerHTML = busy && action === "attestation"
@@ -162,6 +170,9 @@ function setBusy(busy) {
   elements.acceptOfferButton.innerHTML = busy && action === "accept-offer"
     ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
     : '<i data-lucide="file-check-2"></i><span>Accept offer</span>';
+  elements.approveComplianceButton.innerHTML = busy && action === "approve-compliance"
+    ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
+    : '<i data-lucide="clipboard-check"></i><span>Approve compliance</span>';
   refreshIcons();
 }
 
@@ -184,7 +195,8 @@ function emptyStateMessage() {
   if (currentPhase === "empty") return "Select Verifier to issue the first workflow contract.";
   if (currentPhase === "eligibility") return "Select Issuer to create the asset offer.";
   if (currentPhase === "offer") return "Select Investor to accept the active offer.";
-  if (currentPhase === "compliance") return "Compliance review is awaiting verifier approval.";
+  if (currentPhase === "compliance") return "Select Verifier to approve compliance.";
+  if (currentPhase === "agreement") return "Payment authorization is the next workflow action.";
   return "No action is available in the current state.";
 }
 
@@ -212,19 +224,24 @@ function renderRole() {
       title: "Accept private-credit offer",
       summary: "Bind the active eligibility attestation to this purchase.",
     },
+    "approve-compliance": {
+      title: "Approve compliance review",
+      summary: "Authorize this purchase and create the jointly signed agreement.",
+    },
   }[action];
   elements.actionTitle.textContent = actionCopy?.title ?? (
-    phase() === "compliance" ? "Compliance review pending" : content.title
+    phase() === "agreement" ? "Purchase agreement active" : content.title
   );
   elements.actionSummary.textContent = actionCopy?.summary ?? (
-    phase() === "compliance"
-      ? "The accepted offer is waiting for verifier approval."
+    phase() === "agreement"
+      ? "Issuer, investor, and verifier authority is now accumulated on ledger."
       : content.summary
   );
 
   elements.attestationForm.hidden = action !== "attestation";
   elements.offerForm.hidden = action !== "offer";
   elements.acceptOfferPanel.hidden = action !== "accept-offer";
+  elements.approveCompliancePanel.hidden = action !== "approve-compliance";
   elements.roleEmptyState.hidden = Boolean(action);
   elements.emptyStateCopy.textContent = emptyStateMessage();
 
@@ -235,6 +252,14 @@ function renderRole() {
     document.querySelector("#accept-payment").textContent =
       `${formatDecimal(offer.terms.paymentAmount)} ${offer.terms.paymentInstrumentId}`;
     document.querySelector("#accept-expires").textContent = formatDate(offer.offerExpiresAt);
+  }
+  if (action === "approve-compliance") {
+    const compliance = state.contracts.compliance;
+    document.querySelector("#approve-asset").textContent = compliance.terms.assetId;
+    document.querySelector("#approve-units").textContent = `${compliance.terms.units} units`;
+    document.querySelector("#approve-payment").textContent =
+      `${formatDecimal(compliance.terms.paymentAmount)} ${compliance.terms.paymentInstrumentId}`;
+    document.querySelector("#approve-deadline").textContent = formatDate(compliance.settleBefore);
   }
 
   setBusy(state.busy);
@@ -247,7 +272,7 @@ function setTimelineStep(element, labelElement, status, label) {
 }
 
 function renderTimeline() {
-  const { attestation, offer, compliance } = state.contracts;
+  const { attestation, offer, compliance, agreement } = state.contracts;
   if (attestation) {
     setTimelineStep(
       elements.eligibilityStep,
@@ -259,9 +284,14 @@ function renderTimeline() {
     setTimelineStep(elements.eligibilityStep, elements.eligibilityStepLabel, "is-current", "Pending");
   }
 
-  if (compliance) {
+  if (agreement) {
+    setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
+    setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-complete", "Approved");
+    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "is-current", "Pending");
+  } else if (compliance) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-current", "Pending");
+    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
   } else if (offer) {
     setTimelineStep(
       elements.offerStep,
@@ -270,12 +300,19 @@ function renderTimeline() {
       offer.status === "active" ? "Open" : "Closed",
     );
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "", "Locked");
+    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
   } else {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "", "Locked");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "", "Locked");
+    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
   }
 
-  if (compliance) {
+  if (agreement) {
+    elements.timelineCount.textContent = "3 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status offer-open";
+    elements.scenarioStatus.innerHTML =
+      '<i data-lucide="file-check-2"></i><span>Agreement active</span>';
+  } else if (compliance) {
     elements.timelineCount.textContent = "2 of 6 complete";
     elements.scenarioStatus.className = "scenario-status pending";
     elements.scenarioStatus.innerHTML =
@@ -338,7 +375,7 @@ function renderContractFields(contract) {
   addContractField("Settle before", formatDate(contract.settleBefore));
   addContractField("Issuer", shortParty(contract.terms.issuer), { code: true });
   addContractField("Investor", shortParty(contract.terms.investor), { code: true });
-  if (contract.kind === "compliance") {
+  if (contract.kind === "compliance" || contract.kind === "agreement") {
     addContractField("Eligibility CID", shortContractId(contract.eligibilityAttestationCid), {
       code: true,
     });
@@ -420,6 +457,7 @@ const contractPaths = {
   attestation: (id) => `/api/attestations/${encodeURIComponent(id)}`,
   offer: (id) => `/api/offers/${encodeURIComponent(id)}`,
   compliance: (id) => `/api/compliance-pending/${encodeURIComponent(id)}`,
+  agreement: (id) => `/api/agreements/${encodeURIComponent(id)}`,
 };
 
 async function refreshScenario({ quiet = false } = {}) {
@@ -452,6 +490,7 @@ elements.attestationForm.addEventListener("submit", async (event) => {
       }),
       offer: null,
       compliance: null,
+      agreement: null,
     };
     state.selectedKind = "attestation";
     persistScenario();
@@ -504,10 +543,31 @@ elements.acceptOfferButton.addEventListener("click", async () => {
     );
     state.contracts.offer = result.offer;
     state.contracts.compliance = result.compliancePending;
+    state.contracts.agreement = null;
     state.selectedKind = "compliance";
     persistScenario();
     renderAll();
     showToast("Offer accepted; compliance review is active.");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
+elements.approveComplianceButton.addEventListener("click", async () => {
+  setBusy(true);
+  try {
+    const result = await api(
+      `/api/compliance-pending/${encodeURIComponent(state.contracts.compliance.contractId)}/approve`,
+      { method: "POST" },
+    );
+    state.contracts.compliance = result.compliancePending;
+    state.contracts.agreement = result.purchaseAgreement;
+    state.selectedKind = "agreement";
+    persistScenario();
+    renderAll();
+    showToast("Compliance approved; purchase agreement is active.");
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -532,7 +592,7 @@ document.querySelectorAll("[data-contract-kind]").forEach((button) => {
 
 elements.refreshButton.addEventListener("click", () => refreshScenario());
 elements.resetButton.addEventListener("click", () => {
-  state.contracts = { attestation: null, offer: null, compliance: null };
+  state.contracts = { attestation: null, offer: null, compliance: null, agreement: null };
   state.selectedKind = null;
   persistScenario();
   renderAll();

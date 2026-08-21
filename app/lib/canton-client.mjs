@@ -373,6 +373,55 @@ export class CantonClient {
     };
   }
 
+  async approveCompliance(complianceContractId) {
+    validateContractId(complianceContractId);
+    const [context, compliancePending] = await Promise.all([
+      this.getContext(),
+      this.getCompliancePending(complianceContractId),
+    ]);
+    if (compliancePending.status !== "active") {
+      throw new CantonApiError("Compliance review is not active.", {
+        status: 409,
+        code: "COMPLIANCE_INACTIVE",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: templateId("CompliancePending"),
+          contractId: complianceContractId,
+          choice: "ApproveCompliance",
+          choiceArgument: {},
+        },
+      },
+      commandName: "ui-approve-compliance",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const created = extractCreatedEvent(transaction, ":Settlement.Regulated:PurchaseAgreement");
+    const [archivedCompliance, purchaseAgreement] = await Promise.all([
+      this.getCompliancePending(complianceContractId),
+      this.getPurchaseAgreement(created.contractId),
+    ]);
+    return { compliancePending: archivedCompliance, purchaseAgreement };
+  }
+
+  async getPurchaseAgreement(contractId) {
+    const contract = await this.getContract(contractId, "purchase agreement");
+    const { created, payload } = contract;
+    return {
+      kind: "agreement",
+      contractId,
+      templateId: created.templateId ?? templateId("PurchaseAgreement"),
+      status: contract.status,
+      terms: payload.terms,
+      eligibilityAttestationCid: payload.eligibilityAttestationCid,
+      settleBefore: payload.settleBefore,
+    };
+  }
+
   async getContract(contractId, label) {
     validateContractId(contractId);
     const context = await this.getContext();
