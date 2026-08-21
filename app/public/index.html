@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Regulated Settlement</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/vendor/lucide.js" defer></script>
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="landmark"></i></span>
+        <div>
+          <strong>Regulated Settlement</strong>
+          <span>Canton LocalNet</span>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div id="network-status" class="network-status is-loading" role="status">
+          <span class="status-dot"></span>
+          <span id="network-label">Connecting</span>
+        </div>
+        <button id="reset-button" class="icon-button" type="button" title="Reset workspace">
+          <i data-lucide="rotate-ccw"></i>
+          <span class="sr-only">Reset workspace</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="app-shell">
+      <aside class="role-rail" aria-label="Settlement roles">
+        <div class="rail-heading">Acting as</div>
+        <nav class="role-list">
+          <button class="role-button" type="button" data-role="issuer">
+            <i data-lucide="building-2"></i><span>Issuer</span>
+          </button>
+          <button class="role-button" type="button" data-role="investor">
+            <i data-lucide="wallet-cards"></i><span>Investor</span>
+          </button>
+          <button class="role-button is-active" type="button" data-role="verifier">
+            <i data-lucide="shield-check"></i><span>Verifier</span>
+          </button>
+          <button class="role-button" type="button" data-role="custodian">
+            <i data-lucide="package-check"></i><span>Custodian</span>
+          </button>
+          <button class="role-button" type="button" data-role="auditor">
+            <i data-lucide="scan-search"></i><span>Auditor</span>
+          </button>
+        </nav>
+        <div class="rail-context">
+          <span>Environment</span>
+          <strong>Quickstart</strong>
+          <code id="ledger-version">Ledger --</code>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="workspace-header">
+          <div>
+            <div class="eyebrow">PC-NOTE-LOCALNET</div>
+            <h1>Private Credit Settlement</h1>
+          </div>
+          <div id="scenario-status" class="scenario-status pending">
+            <i data-lucide="circle-dashed"></i>
+            <span>Awaiting eligibility</span>
+          </div>
+        </section>
+
+        <section class="timeline-band" aria-labelledby="timeline-title">
+          <div class="section-heading">
+            <h2 id="timeline-title">Settlement timeline</h2>
+            <span id="timeline-count">0 of 6 complete</span>
+          </div>
+          <ol class="timeline">
+            <li class="timeline-step is-current" data-stage="eligibility">
+              <span class="step-index"><i data-lucide="shield-check"></i></span>
+              <div><strong>Eligibility</strong><span id="eligibility-step-label">Pending</span></div>
+            </li>
+            <li class="timeline-step" data-stage="offer">
+              <span class="step-index"><i data-lucide="file-plus-2"></i></span>
+              <div><strong>Offer</strong><span>Locked</span></div>
+            </li>
+            <li class="timeline-step" data-stage="compliance">
+              <span class="step-index"><i data-lucide="clipboard-check"></i></span>
+              <div><strong>Compliance</strong><span>Locked</span></div>
+            </li>
+            <li class="timeline-step" data-stage="payment">
+              <span class="step-index"><i data-lucide="coins"></i></span>
+              <div><strong>Payment</strong><span>Locked</span></div>
+            </li>
+            <li class="timeline-step" data-stage="delivery">
+              <span class="step-index"><i data-lucide="package-check"></i></span>
+              <div><strong>Delivery</strong><span>Locked</span></div>
+            </li>
+            <li class="timeline-step" data-stage="receipt">
+              <span class="step-index"><i data-lucide="receipt-text"></i></span>
+              <div><strong>Receipt</strong><span>Locked</span></div>
+            </li>
+          </ol>
+        </section>
+
+        <section class="action-band" aria-labelledby="action-title">
+          <div class="action-copy">
+            <div class="role-kicker"><i id="role-icon" data-lucide="shield-check"></i><span id="role-name">Verifier</span></div>
+            <h2 id="action-title">Issue eligibility attestation</h2>
+            <p id="action-summary">Record eligibility for the intended investor and asset class.</p>
+          </div>
+
+          <form id="attestation-form" class="attestation-form">
+            <label>
+              <span>Investor</span>
+              <input id="investor-party" type="text" value="Connecting to LocalNet..." readonly />
+            </label>
+            <label>
+              <span>Asset class</span>
+              <select id="asset-class" name="assetClass">
+                <option value="PRIVATE-CREDIT">Private credit</option>
+                <option value="TOKENIZED-BOND">Tokenized bond</option>
+                <option value="FUND-INTEREST">Fund interest</option>
+              </select>
+            </label>
+            <label>
+              <span>Valid for</span>
+              <select id="validity" name="validForHours">
+                <option value="1">1 hour</option>
+                <option value="3" selected>3 hours</option>
+                <option value="24">24 hours</option>
+                <option value="168">7 days</option>
+              </select>
+            </label>
+            <button id="issue-button" class="primary-button" type="submit" disabled>
+              <i data-lucide="badge-check"></i><span>Issue attestation</span>
+            </button>
+          </form>
+
+          <div id="role-empty-state" class="role-empty-state" hidden>
+            <i data-lucide="lock-keyhole"></i>
+            <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
+          </div>
+        </section>
+      </main>
+
+      <aside class="inspector" aria-labelledby="inspector-title">
+        <div class="inspector-header">
+          <div>
+            <div class="eyebrow">Ledger evidence</div>
+            <h2 id="inspector-title">Contract inspector</h2>
+          </div>
+          <button id="refresh-button" class="icon-button" type="button" title="Refresh contract" disabled>
+            <i data-lucide="refresh-cw"></i>
+            <span class="sr-only">Refresh contract</span>
+          </button>
+        </div>
+
+        <div id="inspector-empty" class="inspector-empty">
+          <i data-lucide="file-search"></i>
+          <strong>No attestation selected</strong>
+          <span>The active contract will appear here.</span>
+        </div>
+
+        <div id="contract-details" class="contract-details" hidden>
+          <div class="contract-state"><span class="status-dot"></span><strong id="contract-status">Active</strong></div>
+          <dl>
+            <div><dt>Asset class</dt><dd id="detail-asset-class"></dd></div>
+            <div><dt>Expires</dt><dd id="detail-expires"></dd></div>
+            <div><dt>Verifier</dt><dd><code id="detail-verifier"></code></dd></div>
+            <div><dt>Investor</dt><dd><code id="detail-investor"></code></dd></div>
+            <div class="contract-id-row">
+              <dt>Contract ID</dt>
+              <dd><code id="detail-contract-id"></code><button id="copy-button" class="copy-button" type="button" title="Copy contract ID"><i data-lucide="copy"></i><span class="sr-only">Copy contract ID</span></button></dd>
+            </div>
+          </dl>
+          <div class="ledger-proof">
+            <i data-lucide="database-zap"></i>
+            <div><strong>Ledger query confirmed</strong><span id="proof-copy">Created event present; no archive event.</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

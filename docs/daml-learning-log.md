@@ -379,3 +379,32 @@ second in the Ledger API command envelope. Daml can then exercise the real
 allocation as a child of `CompleteTokenizedPayment`. The transfer, agreement
 archive, request consumption, and `PaymentPrepared` creation either all commit
 or all fail.
+
+## 21. A Browser Action Is Still A Daml Command
+
+The first stakeholder UI action creates `EligibilityAttestation`; it does not
+write application state to a separate database. The backend translates the form
+into this JSON Ledger API command:
+
+```json
+{
+  "CreateCommand": {
+    "templateId": "#canton-regulated-settlement-model:Settlement.Regulated:EligibilityAttestation",
+    "createArguments": {
+      "verifier": "<provider party>",
+      "investor": "<investor party>",
+      "assetClass": "PRIVATE-CREDIT",
+      "expiresAt": "<ISO-8601 time>"
+    }
+  }
+}
+```
+
+The command envelope sets `actAs` to the verifier. That matches the template's
+`signatory verifier`, so Canton accepts the creation only with verifier
+authority. The investor becomes an observer because the Daml template declares
+`observer investor`; the browser does not decide contract visibility.
+
+After submission, the backend calls `events-by-contract-id`. An active result
+has a created event and no archive event. The UI timeline and inspector are
+therefore projections of ledger state, not a second workflow implementation.

@@ -1,4 +1,4 @@
-name: Daml
+name: POC
 
 on:
   push:
@@ -16,6 +16,12 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Test application adapter
+        run: npm run test:app
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -40,5 +46,5 @@ jobs:
       - name: Install Daml SDK
         run: dpm install 3.5.2
 
-      - name: Build and test
+      - name: Build and test Daml
         run: ./scripts/test.sh

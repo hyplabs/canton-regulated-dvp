@@ -24,6 +24,8 @@ Date range: 2026-08-20 to 2026-08-27
 - Executed a real Canton Coin allocation and regulated settlement end to end.
 - Added a repeatable JSON Ledger API LocalNet runner with balance and active-state
   verification.
+- Added the first stakeholder UI slice backed by a real eligibility contract.
+- Added Node and Playwright coverage for the backend mapping and browser states.
 
 ## Next: Complete V2
 
@@ -31,10 +33,12 @@ Date range: 2026-08-20 to 2026-08-27
 2. Add missing-allocation and expired-allocation runtime tests.
 3. Capture representative LocalNet logs as release evidence.
 
-## Then: V3 Presentation Slice
+## In Progress: V3 Presentation Slice
 
-1. Add a small backend that submits commands for authorized roles.
-2. Build the role-based workflow UI against that backend.
+1. Completed: add a backend that submits verifier commands without exposing
+   participant tokens to the browser.
+2. In progress: extend the role-based workflow UI one ledger transition at a
+   time.
 3. Demonstrate successful settlement and withdrawn-eligibility failure.
 4. Capture a three-to-five-minute walkthrough.
 

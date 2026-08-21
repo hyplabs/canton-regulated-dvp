@@ -9,6 +9,10 @@ validates a funded `Allocation`, and executes its transfer before the workflow
 can reach `PaymentPrepared`. The LocalNet runner proves that path with real
 Canton Coin and separate app-provider/app-user participants.
 
+The first V3 slice adds a role-based browser UI backed by the real JSON Ledger
+API. A verifier can create an `EligibilityAttestation`, refresh its active state,
+and inspect the contract evidence returned by Canton.
+
 This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
 small allocation implementation, while the LocalNet path uses the real Canton
 Coin registry. Delivery is still a custodian evidence reference; a true DvP
@@ -81,6 +85,7 @@ jointly controlled completion choice.
 - `daml/tokenized-tests/` - mock allocation plus integration scripts.
 - `daml/vendor/` - pinned Token Standard API DARs with checksums.
 - `daml/multi-package.yaml` - four-package Daml workspace.
+- `app/` - local backend adapter, stakeholder UI, and focused tests.
 - `docs/` - architecture, learning guide, strategy, research, and runbook.
 - `scripts/test.sh` - builds every package and executes both test suites.
 - `scripts/localnet-demo.sh` - uploads both production DARs and executes a real
@@ -120,6 +125,23 @@ With Quickstart LocalNet running, execute the real Canton Coin path:
 ./scripts/localnet-demo.sh
 ```
 
+To run the stakeholder UI after the model DAR has been uploaded to LocalNet:
+
+```bash
+npm install
+npm run app
+```
+
+Open `http://127.0.0.1:4173`. Use the Verifier role to issue an eligibility
+attestation, then refresh its contract state in the ledger inspector.
+
+Run the application tests with:
+
+```bash
+npm run test:app
+npm run test:ui
+```
+
 Start with `docs/demo-guide.md` for the presentation walkthrough and
 `docs/runbook.md` for environment and troubleshooting details.
 The latest stopped-stack timing and ledger evidence are recorded in
@@ -142,6 +164,8 @@ The exact real-registry handoff is in
 - The repeatable LocalNet runner verifies consumed request/allocation state,
   final receipt creation, sender/receiver balance changes, and atomic rejection
   of an investor's unauthorized settlement attempt.
+- The V3 UI creates and independently re-queries a real eligibility contract;
+  participant credentials remain in the local backend.
 - JDK 21 is provisioned locally for this workspace.
 - A tokenized delivery leg, broader LocalNet failure coverage, and the
-  stakeholder UI remain upcoming V2/V3 work.
+  remaining stakeholder workflow actions remain upcoming V2/V3 work.

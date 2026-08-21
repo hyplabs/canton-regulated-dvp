@@ -1,0 +1,21 @@
+{
+  "name": "canton-regulated-settlement-poc",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "app": "node app/server.mjs",
+    "app:dev": "node --watch app/server.mjs",
+    "test:app": "node --test app/test/*.test.mjs",
+    "test:ui": "playwright test"
+  },
+  "dependencies": {
+    "lucide": "^1.33.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

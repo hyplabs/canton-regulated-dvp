@@ -47,8 +47,11 @@ business-state transition.
 
 Goal: explain the workflow in three to five minutes without weakening the proof.
 
-- Role switcher for issuer, investor, verifier, custodian, and auditor.
-- Timeline reflecting the exact on-ledger state.
+Status: the first real vertical slice is complete. The verifier can create an
+eligibility attestation from the browser and inspect its active Canton contract.
+
+- Completed: role switcher for issuer, investor, verifier, custodian, and auditor.
+- In progress: timeline reflecting the exact on-ledger state.
 - Commands enabled only for the current role and active contract.
 - Visible failure for withdrawn or expired eligibility.
 - Auditor view limited to the final receipt.
