@@ -11,8 +11,10 @@ import {
 const context = {
   providerToken: "provider-token",
   userToken: "user-token",
+  userWalletToken: "wallet-token",
   providerParty: "Provider::1220abcdef",
   investorParty: "Investor::1220fedcba",
+  dsoParty: "DSO::1220dso",
 };
 const contractId = "00abcdef1234567890";
 
@@ -403,4 +405,129 @@ test("approves compliance as verifier and creates a purchase agreement", async (
     submitRequest.body.commands.commands[0].ExerciseCommand.choice,
     "ApproveCompliance",
   );
+});
+
+test("authorizes a tokenized payment across provider, investor, and wallet APIs", async () => {
+  const agreementContractId = "00agreement1234567";
+  const proposalContractId = "00proposal123456789";
+  const approvedContractId = "00approved123456789";
+  const requestContractId = "00request1234567890";
+  let proposalArchived = false;
+  let approvalArchived = false;
+  const submissions = [];
+  const terms = {
+    issuer: context.providerParty,
+    investor: context.investorParty,
+    verifier: context.providerParty,
+    custodian: context.providerParty,
+    auditor: context.providerParty,
+    assetId: "PC-NOTE-2026-A",
+    assetClass: "PRIVATE-CREDIT",
+    units: "1000",
+    paymentAmount: "10.0",
+    paymentInstrumentId: "Amulet",
+  };
+  const paymentPayload = {
+    requestId: "regulated-ui-request",
+    terms,
+    agreementCid: agreementContractId,
+    eligibilityAttestationCid: contractId,
+    paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+    requestedAt: "2026-08-21T20:00:00Z",
+    allocateBefore: "2026-08-21T21:00:00Z",
+    settleBefore: "2099-08-21T22:00:00Z",
+  };
+  const contractEvent = (id, payload, archived = false) =>
+    jsonResponse({
+      created: { createdEvent: { contractId: id, createArgument: payload } },
+      archived: archived ? { archivedEvent: { contractId: id } } : null,
+    });
+  const fetchImpl = async (url, options) => {
+    const body = options.body ? JSON.parse(options.body) : null;
+    if (url.endsWith("/v0/wallet/token-standard/allocation-requests")) {
+      assert.equal(options.headers.Authorization, "Bearer wallet-token");
+      return jsonResponse({
+        allocation_requests: [{ contract: { contract_id: requestContractId } }],
+      });
+    }
+    if (url.endsWith("/v2/commands/submit-and-wait-for-transaction")) {
+      const command = body.commands.commands[0];
+      submissions.push({ url, options, body, command });
+      if (command.CreateCommand) {
+        return jsonResponse({
+          transaction: {
+            events: [
+              {
+                CreatedEvent: {
+                  contractId: proposalContractId,
+                  templateId: "pkg:Settlement.TokenizedPayment:TokenizedPaymentProposal",
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (command.ExerciseCommand.choice === "ApproveTokenizedPayment") {
+        proposalArchived = true;
+        return jsonResponse({
+          transaction: {
+            events: [
+              {
+                CreatedEvent: {
+                  contractId: approvedContractId,
+                  templateId: "pkg:Settlement.TokenizedPayment:ApprovedTokenizedPayment",
+                },
+              },
+            ],
+          },
+        });
+      }
+      approvalArchived = true;
+      return jsonResponse({
+        transaction: {
+          events: [
+            {
+              CreatedEvent: {
+                contractId: requestContractId,
+                templateId: "pkg:Settlement.TokenizedPayment:TokenizedPaymentRequest",
+              },
+            },
+          ],
+        },
+      });
+    }
+    if (body.contractId === agreementContractId) {
+      return contractEvent(agreementContractId, {
+        terms,
+        eligibilityAttestationCid: contractId,
+        settleBefore: paymentPayload.settleBefore,
+      });
+    }
+    if (body.contractId === proposalContractId) {
+      return contractEvent(proposalContractId, paymentPayload, proposalArchived);
+    }
+    if (body.contractId === approvedContractId) {
+      return contractEvent(approvedContractId, paymentPayload, approvalArchived);
+    }
+    return contractEvent(requestContractId, paymentPayload);
+  };
+  const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
+
+  const proposal = await client.createTokenizedPaymentProposal({ agreementContractId });
+  const approval = await client.approveTokenizedPayment(proposal.contractId);
+  const acceptance = await client.acceptTokenizedPayment(approval.approvedPayment.contractId);
+
+  assert.equal(proposal.status, "active");
+  assert.equal(approval.paymentProposal.status, "archived");
+  assert.equal(approval.approvedPayment.status, "active");
+  assert.equal(acceptance.approvedPayment.status, "archived");
+  assert.equal(acceptance.paymentRequest.status, "active");
+  assert.equal(acceptance.paymentRequest.walletDiscovered, true);
+  assert.deepEqual(submissions.map(({ body }) => body.commands.actAs[0]), [
+    context.providerParty,
+    context.providerParty,
+    context.investorParty,
+  ]);
+  assert.equal(submissions[2].url, "http://127.0.0.1:2975/v2/commands/submit-and-wait-for-transaction");
+  assert.equal(submissions[2].options.headers.Authorization, "Bearer user-token");
 });

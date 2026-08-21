@@ -9,6 +9,9 @@ const state = {
     offer: null,
     compliance: null,
     agreement: null,
+    paymentProposal: null,
+    approvedPayment: null,
+    paymentRequest: null,
   },
   selectedKind: null,
   busy: false,
@@ -51,10 +54,12 @@ const elements = {
   offerForm: document.querySelector("#offer-form"),
   acceptOfferPanel: document.querySelector("#accept-offer-panel"),
   approveCompliancePanel: document.querySelector("#approve-compliance-panel"),
+  paymentAuthorizationPanel: document.querySelector("#payment-authorization-panel"),
   issueButton: document.querySelector("#issue-button"),
   createOfferButton: document.querySelector("#create-offer-button"),
   acceptOfferButton: document.querySelector("#accept-offer-button"),
   approveComplianceButton: document.querySelector("#approve-compliance-button"),
+  paymentActionButton: document.querySelector("#payment-action-button"),
   roleEmptyState: document.querySelector("#role-empty-state"),
   emptyStateCopy: document.querySelector("#empty-state-copy"),
   roleName: document.querySelector("#role-name"),
@@ -121,6 +126,9 @@ function showToast(message, tone = "success") {
 }
 
 function phase() {
+  if (state.contracts.paymentRequest?.status === "active") return "paymentRequest";
+  if (state.contracts.approvedPayment?.status === "active") return "approvedPayment";
+  if (state.contracts.paymentProposal?.status === "active") return "paymentProposal";
   if (state.contracts.agreement?.status === "active") return "agreement";
   if (state.contracts.compliance?.status === "active") return "compliance";
   if (state.contracts.offer?.status === "active") return "offer";
@@ -134,6 +142,9 @@ function currentAction() {
   if (currentPhase === "eligibility" && state.role === "issuer") return "offer";
   if (currentPhase === "offer" && state.role === "investor") return "accept-offer";
   if (currentPhase === "compliance" && state.role === "verifier") return "approve-compliance";
+  if (currentPhase === "agreement" && state.role === "issuer") return "propose-payment";
+  if (currentPhase === "paymentProposal" && state.role === "verifier") return "approve-payment";
+  if (currentPhase === "approvedPayment" && state.role === "investor") return "accept-payment";
   return null;
 }
 
@@ -159,6 +170,8 @@ function setBusy(busy) {
   elements.createOfferButton.disabled = !enabled || action !== "offer";
   elements.acceptOfferButton.disabled = !enabled || action !== "accept-offer";
   elements.approveComplianceButton.disabled = !enabled || action !== "approve-compliance";
+  elements.paymentActionButton.disabled =
+    !enabled || !["propose-payment", "approve-payment", "accept-payment"].includes(action);
   elements.refreshButton.disabled = busy || !state.selectedKind;
 
   elements.issueButton.innerHTML = busy && action === "attestation"
@@ -173,6 +186,14 @@ function setBusy(busy) {
   elements.approveComplianceButton.innerHTML = busy && action === "approve-compliance"
     ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
     : '<i data-lucide="clipboard-check"></i><span>Approve compliance</span>';
+  const paymentButton = {
+    "propose-payment": ["send", "Create payment proposal"],
+    "approve-payment": ["badge-check", "Approve payment request"],
+    "accept-payment": ["wallet-cards", "Accept payment request"],
+  }[action] ?? ["send", "Payment authorization"];
+  elements.paymentActionButton.innerHTML = busy && paymentButton
+    ? '<i data-lucide="loader-circle" class="spin"></i><span>Submitting to Canton</span>'
+    : `<i data-lucide="${paymentButton[0]}"></i><span>${paymentButton[1]}</span>`;
   refreshIcons();
 }
 
@@ -197,6 +218,9 @@ function emptyStateMessage() {
   if (currentPhase === "offer") return "Select Investor to accept the active offer.";
   if (currentPhase === "compliance") return "Select Verifier to approve compliance.";
   if (currentPhase === "agreement") return "Payment authorization is the next workflow action.";
+  if (currentPhase === "paymentProposal") return "Select Verifier to approve the payment request.";
+  if (currentPhase === "approvedPayment") return "Select Investor to accept the payment request.";
+  if (currentPhase === "paymentRequest") return "The standard wallet can now allocate Canton Coin.";
   return "No action is available in the current state.";
 }
 
@@ -228,20 +252,46 @@ function renderRole() {
       title: "Approve compliance review",
       summary: "Authorize this purchase and create the jointly signed agreement.",
     },
+    "propose-payment": {
+      title: "Propose Canton Coin payment",
+      summary: "Create the token-standard payment request for this agreement.",
+    },
+    "approve-payment": {
+      title: "Approve Canton Coin payment",
+      summary: "Verify the agreement reference, eligibility, amount, and deadlines.",
+    },
+    "accept-payment": {
+      title: "Accept Canton Coin payment",
+      summary: "Authorize wallet discovery for the investor's payment leg.",
+    },
   }[action];
-  elements.actionTitle.textContent = actionCopy?.title ?? (
-    phase() === "agreement" ? "Purchase agreement active" : content.title
-  );
-  elements.actionSummary.textContent = actionCopy?.summary ?? (
-    phase() === "agreement"
-      ? "Issuer, investor, and verifier authority is now accumulated on ledger."
-      : content.summary
-  );
+  const idlePhaseCopy = {
+    agreement: {
+      title: "Purchase agreement active",
+      summary: "Issuer, investor, and verifier authority is accumulated on ledger.",
+    },
+    paymentProposal: {
+      title: "Payment proposal active",
+      summary: "The proposal is waiting for verifier authorization.",
+    },
+    approvedPayment: {
+      title: "Payment approval active",
+      summary: "The approved request is waiting for investor acceptance.",
+    },
+    paymentRequest: {
+      title: "Wallet payment request active",
+      summary: "The standard allocation request is available to the investor wallet.",
+    },
+  }[phase()];
+  elements.actionTitle.textContent = actionCopy?.title ?? idlePhaseCopy?.title ?? content.title;
+  elements.actionSummary.textContent = actionCopy?.summary ?? idlePhaseCopy?.summary ?? content.summary;
 
   elements.attestationForm.hidden = action !== "attestation";
   elements.offerForm.hidden = action !== "offer";
   elements.acceptOfferPanel.hidden = action !== "accept-offer";
   elements.approveCompliancePanel.hidden = action !== "approve-compliance";
+  elements.paymentAuthorizationPanel.hidden =
+    !["propose-payment", "approve-payment", "accept-payment"].includes(action);
   elements.roleEmptyState.hidden = Boolean(action);
   elements.emptyStateCopy.textContent = emptyStateMessage();
 
@@ -261,6 +311,23 @@ function renderRole() {
       `${formatDecimal(compliance.terms.paymentAmount)} ${compliance.terms.paymentInstrumentId}`;
     document.querySelector("#approve-deadline").textContent = formatDate(compliance.settleBefore);
   }
+  if (["propose-payment", "approve-payment", "accept-payment"].includes(action)) {
+    const paymentContract =
+      state.contracts.paymentProposal ??
+      state.contracts.approvedPayment ??
+      state.contracts.agreement;
+    const stageLabel = {
+      "propose-payment": "Issuer proposal",
+      "approve-payment": "Verifier approval",
+      "accept-payment": "Investor acceptance",
+    }[action];
+    document.querySelector("#payment-action-stage").textContent = stageLabel;
+    document.querySelector("#payment-action-asset").textContent = paymentContract.terms.assetId;
+    document.querySelector("#payment-action-amount").textContent =
+      `${formatDecimal(paymentContract.terms.paymentAmount)} ${paymentContract.terms.paymentInstrumentId}`;
+    document.querySelector("#payment-action-deadline").textContent =
+      formatDate(paymentContract.settleBefore);
+  }
 
   setBusy(state.busy);
   refreshIcons();
@@ -272,7 +339,15 @@ function setTimelineStep(element, labelElement, status, label) {
 }
 
 function renderTimeline() {
-  const { attestation, offer, compliance, agreement } = state.contracts;
+  const {
+    attestation,
+    offer,
+    compliance,
+    agreement,
+    paymentProposal,
+    approvedPayment,
+    paymentRequest,
+  } = state.contracts;
   if (attestation) {
     setTimelineStep(
       elements.eligibilityStep,
@@ -287,7 +362,14 @@ function renderTimeline() {
   if (agreement) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-complete", "Approved");
-    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "is-current", "Pending");
+    const paymentLabel = paymentRequest
+      ? "Wallet ready"
+      : approvedPayment
+        ? "Approved"
+        : paymentProposal
+          ? "Proposed"
+          : "Pending";
+    setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "is-current", paymentLabel);
   } else if (compliance) {
     setTimelineStep(elements.offerStep, elements.offerStepLabel, "is-complete", "Accepted");
     setTimelineStep(elements.complianceStep, elements.complianceStepLabel, "is-current", "Pending");
@@ -307,7 +389,23 @@ function renderTimeline() {
     setTimelineStep(elements.paymentStep, elements.paymentStepLabel, "", "Locked");
   }
 
-  if (agreement) {
+  if (paymentRequest) {
+    elements.timelineCount.textContent = "3 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status active";
+    elements.scenarioStatus.innerHTML = paymentRequest.walletDiscovered
+      ? '<i data-lucide="wallet-cards"></i><span>Wallet request ready</span>'
+      : '<i data-lucide="refresh-cw"></i><span>Wallet discovery pending</span>';
+  } else if (approvedPayment) {
+    elements.timelineCount.textContent = "3 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status offer-open";
+    elements.scenarioStatus.innerHTML =
+      '<i data-lucide="badge-check"></i><span>Payment approved</span>';
+  } else if (paymentProposal) {
+    elements.timelineCount.textContent = "3 of 6 complete";
+    elements.scenarioStatus.className = "scenario-status offer-open";
+    elements.scenarioStatus.innerHTML =
+      '<i data-lucide="send"></i><span>Payment proposed</span>';
+  } else if (agreement) {
     elements.timelineCount.textContent = "3 of 6 complete";
     elements.scenarioStatus.className = "scenario-status offer-open";
     elements.scenarioStatus.innerHTML =
@@ -380,6 +478,18 @@ function renderContractFields(contract) {
       code: true,
     });
   }
+  if (["paymentProposal", "approvedPayment", "paymentRequest"].includes(contract.kind)) {
+    addContractField("Request ID", contract.requestId, { code: true });
+    addContractField("Requested", formatDate(contract.requestedAt));
+    addContractField("Allocate before", formatDate(contract.allocateBefore));
+    addContractField("Agreement CID", shortContractId(contract.agreementCid), { code: true });
+    if (contract.kind === "paymentRequest") {
+      addContractField(
+        "Wallet discovery",
+        contract.walletDiscovered ? "Allocation request visible" : "Discovery pending",
+      );
+    }
+  }
 }
 
 function renderInspector() {
@@ -399,6 +509,15 @@ function renderInspector() {
       String(available && button.dataset.contractKind === state.selectedKind),
     );
   });
+  const selectedTab = document.querySelector(
+    `[data-contract-kind="${state.selectedKind ?? ""}"]`,
+  );
+  if (selectedTab) {
+    elements.contractTabs.scrollLeft = Math.max(
+      0,
+      selectedTab.offsetLeft - elements.contractTabs.clientWidth + selectedTab.offsetWidth,
+    );
+  }
 
   const contract = state.selectedKind ? state.contracts[state.selectedKind] : null;
   elements.inspectorEmpty.hidden = Boolean(contract);
@@ -409,8 +528,17 @@ function renderInspector() {
   }
 
   const active = contract.status === "active";
+  const kindLabel = {
+    attestation: "attestation",
+    offer: "offer",
+    compliance: "compliance",
+    agreement: "agreement",
+    paymentProposal: "payment proposal",
+    approvedPayment: "payment approval",
+    paymentRequest: "payment request",
+  }[contract.kind] ?? contract.kind;
   document.querySelector("#contract-status").textContent =
-    `${active ? "Active" : "Archived"} ${contract.kind} contract`;
+    `${active ? "Active" : "Archived"} ${kindLabel} contract`;
   document.querySelector(".contract-state").className =
     `contract-state ${active ? "active" : "archived"}`;
   document.querySelector("#detail-contract-id").textContent = shortContractId(contract.contractId);
@@ -458,6 +586,9 @@ const contractPaths = {
   offer: (id) => `/api/offers/${encodeURIComponent(id)}`,
   compliance: (id) => `/api/compliance-pending/${encodeURIComponent(id)}`,
   agreement: (id) => `/api/agreements/${encodeURIComponent(id)}`,
+  paymentProposal: (id) => `/api/payment-proposals/${encodeURIComponent(id)}`,
+  approvedPayment: (id) => `/api/approved-payments/${encodeURIComponent(id)}`,
+  paymentRequest: (id) => `/api/payment-requests/${encodeURIComponent(id)}`,
 };
 
 async function refreshScenario({ quiet = false } = {}) {
@@ -491,6 +622,9 @@ elements.attestationForm.addEventListener("submit", async (event) => {
       offer: null,
       compliance: null,
       agreement: null,
+      paymentProposal: null,
+      approvedPayment: null,
+      paymentRequest: null,
     };
     state.selectedKind = "attestation";
     persistScenario();
@@ -544,6 +678,9 @@ elements.acceptOfferButton.addEventListener("click", async () => {
     state.contracts.offer = result.offer;
     state.contracts.compliance = result.compliancePending;
     state.contracts.agreement = null;
+    state.contracts.paymentProposal = null;
+    state.contracts.approvedPayment = null;
+    state.contracts.paymentRequest = null;
     state.selectedKind = "compliance";
     persistScenario();
     renderAll();
@@ -564,10 +701,57 @@ elements.approveComplianceButton.addEventListener("click", async () => {
     );
     state.contracts.compliance = result.compliancePending;
     state.contracts.agreement = result.purchaseAgreement;
+    state.contracts.paymentProposal = null;
+    state.contracts.approvedPayment = null;
+    state.contracts.paymentRequest = null;
     state.selectedKind = "agreement";
     persistScenario();
     renderAll();
     showToast("Compliance approved; purchase agreement is active.");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    setBusy(false);
+  }
+});
+
+elements.paymentActionButton.addEventListener("click", async () => {
+  const action = currentAction();
+  setBusy(true);
+  try {
+    if (action === "propose-payment") {
+      state.contracts.paymentProposal = await api("/api/payment-proposals", {
+        method: "POST",
+        body: JSON.stringify({ agreementContractId: state.contracts.agreement.contractId }),
+      });
+      state.selectedKind = "paymentProposal";
+      showToast("Tokenized payment proposal committed to Canton.");
+    } else if (action === "approve-payment") {
+      const result = await api(
+        `/api/payment-proposals/${encodeURIComponent(state.contracts.paymentProposal.contractId)}/approve`,
+        { method: "POST" },
+      );
+      state.contracts.paymentProposal = result.paymentProposal;
+      state.contracts.approvedPayment = result.approvedPayment;
+      state.selectedKind = "approvedPayment";
+      showToast("Tokenized payment approved by the verifier.");
+    } else if (action === "accept-payment") {
+      const result = await api(
+        `/api/approved-payments/${encodeURIComponent(state.contracts.approvedPayment.contractId)}/accept`,
+        { method: "POST" },
+      );
+      state.contracts.approvedPayment = result.approvedPayment;
+      state.contracts.paymentRequest = result.paymentRequest;
+      state.selectedKind = "paymentRequest";
+      showToast(
+        result.paymentRequest.walletDiscovered
+          ? "Investor wallet discovered the payment request."
+          : "Payment request is active; wallet discovery is still pending.",
+        result.paymentRequest.walletDiscovered ? "success" : "neutral",
+      );
+    }
+    persistScenario();
+    renderAll();
   } catch (error) {
     showToast(error.message, "error");
   } finally {
@@ -592,7 +776,15 @@ document.querySelectorAll("[data-contract-kind]").forEach((button) => {
 
 elements.refreshButton.addEventListener("click", () => refreshScenario());
 elements.resetButton.addEventListener("click", () => {
-  state.contracts = { attestation: null, offer: null, compliance: null, agreement: null };
+  state.contracts = {
+    attestation: null,
+    offer: null,
+    compliance: null,
+    agreement: null,
+    paymentProposal: null,
+    approvedPayment: null,
+    paymentRequest: null,
+  };
   state.selectedKind = null;
   persistScenario();
   renderAll();

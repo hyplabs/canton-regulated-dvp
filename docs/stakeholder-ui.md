@@ -12,8 +12,11 @@ The current workflow supports:
 3. Investor exercises `AcceptOffer` through the app-user participant.
 4. Verifier exercises `ApproveCompliance` through the provider participant.
 5. The timeline advances to `PurchaseAgreement`.
-6. The inspector shows the active attestation and agreement alongside the
-   archived offer and compliance review from fresh Ledger API queries.
+6. Issuer proposes payment, verifier approves it, and investor accepts it.
+7. The standard wallet discovers the resulting `TokenizedPaymentRequest`.
+8. The inspector shows the active attestation, agreement, and payment request
+   alongside the archived offer and compliance review from fresh Ledger API
+   queries.
 
 Custodian and auditor views remain read-only until their corresponding ledger
 transitions are implemented.
@@ -31,6 +34,12 @@ The browser calls only the local backend:
 - `GET /api/compliance-pending/:contractId`
 - `POST /api/compliance-pending/:contractId/approve`
 - `GET /api/agreements/:contractId`
+- `POST /api/payment-proposals`
+- `GET /api/payment-proposals/:contractId`
+- `POST /api/payment-proposals/:contractId/approve`
+- `GET /api/approved-payments/:contractId`
+- `POST /api/approved-payments/:contractId/accept`
+- `GET /api/payment-requests/:contractId`
 
 The backend retrieves participant context from the Quickstart onboarding
 container. Issuer and verifier commands use the provider Ledger API on
@@ -65,12 +74,14 @@ layout.
 
 ## Next Extension
 
-Add tokenized payment authorization as the next stateful milestone:
+Add real Canton Coin allocation and execution as the next stateful milestone:
 
-1. Issuer creates `TokenizedPaymentProposal` for the agreement.
-2. Verifier exercises `ApproveTokenizedPayment`.
-3. Investor exercises `AcceptTokenizedPayment` through the app-user participant.
-4. The standard wallet discovers the resulting `TokenizedPaymentRequest`.
+1. Investor wallet allocates the exact payment leg.
+2. Backend obtains the registry execute-transfer context and disclosures.
+3. Provider exercises `CompleteTokenizedPayment` atomically with allocation
+   execution.
+4. The UI verifies the request, agreement, and allocation were consumed and
+   shows the resulting `PaymentPrepared` contract.
 
 Continue this pattern for each transition. Every visible state change must come
 from a transaction response or a fresh contract query; the frontend must not

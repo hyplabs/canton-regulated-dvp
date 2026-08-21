@@ -451,3 +451,23 @@ The UI does not relabel `CompliancePending` as approved in memory. It re-queries
 that contract to confirm its archive event and independently queries the new
 agreement's created event. This keeps the visual timeline subordinate to Daml's
 actual transaction result.
+
+## 24. Standard Interfaces Decouple The Wallet From Our Template
+
+Payment authorization accumulates authority in three contracts:
+
+```text
+TokenizedPaymentProposal       issuer signatory
+ApprovedTokenizedPayment       issuer + verifier signatories
+TokenizedPaymentRequest        issuer + verifier + investor signatories
+```
+
+The provider submits the issuer proposal and verifier approval in minimal
+LocalNet; the app-user participant submits investor acceptance. Each transition
+reuses the parent-authority rule from the regulated workflow.
+
+The final template implements `AllocationRequest`, so the wallet discovers it
+through the standard view rather than by importing or parsing
+`TokenizedPaymentRequest`. The UI checks the wallet API separately after the
+ledger transaction. A delayed wallet response does not undo or hide the already
+committed Daml contract; refresh can confirm discovery later.

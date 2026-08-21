@@ -62,6 +62,39 @@ const purchaseAgreement = {
   settleBefore: offer.settleBefore,
 };
 
+const paymentBase = {
+  requestId: "regulated-ui-request",
+  terms: offer.terms,
+  agreementCid: purchaseAgreement.contractId,
+  eligibilityAttestationCid: attestation.contractId,
+  paymentInstrumentId: { admin: "DSO::1220dso", id: "Amulet" },
+  requestedAt: "2026-08-21T20:00:00Z",
+  allocateBefore: "2026-08-21T21:00:00Z",
+  settleBefore: offer.settleBefore,
+};
+
+const paymentProposal = {
+  ...paymentBase,
+  kind: "paymentProposal",
+  contractId: "00proposal1234567890abcdef1234567",
+  status: "active",
+};
+
+const approvedPayment = {
+  ...paymentBase,
+  kind: "approvedPayment",
+  contractId: "00approved1234567890abcdef1234567",
+  status: "active",
+};
+
+const paymentRequest = {
+  ...paymentBase,
+  kind: "paymentRequest",
+  contractId: "00request1234567890abcdef12345678",
+  status: "active",
+  walletDiscovered: true,
+};
+
 async function mockApi(page) {
   await page.route("**/api/health", (route) => route.fulfill({ json: health }));
   await page.route("**/api/attestations", async (route) => {
@@ -123,7 +156,7 @@ test("discards a remembered contract after a LocalNet reset", async ({ page }) =
   await expect(page.getByText("No contract selected")).toBeVisible();
 });
 
-test("roles advance eligibility through an approved purchase agreement", async ({ page }) => {
+test("roles advance eligibility through a wallet-discoverable payment request", async ({ page }) => {
   await mockApi(page);
   await page.route("**/api/offers", async (route) => {
     expect(route.request().postDataJSON()).toEqual({
@@ -150,6 +183,28 @@ test("roles advance eligibility through an approved purchase agreement", async (
       json: {
         compliancePending: { ...compliancePending, status: "archived" },
         purchaseAgreement,
+      },
+    });
+  });
+  await page.route("**/api/payment-proposals", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      agreementContractId: purchaseAgreement.contractId,
+    });
+    await route.fulfill({ status: 201, json: paymentProposal });
+  });
+  await page.route("**/api/payment-proposals/*/approve", async (route) => {
+    await route.fulfill({
+      json: {
+        paymentProposal: { ...paymentProposal, status: "archived" },
+        approvedPayment,
+      },
+    });
+  });
+  await page.route("**/api/approved-payments/*/accept", async (route) => {
+    await route.fulfill({
+      json: {
+        approvedPayment: { ...approvedPayment, status: "archived" },
+        paymentRequest,
       },
     });
   });
@@ -181,4 +236,18 @@ test("roles advance eligibility through an approved purchase agreement", async (
 
   await page.getByRole("tab", { name: "Compliance" }).click();
   await expect(page.getByText("Archived compliance contract", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Issuer" }).click();
+  await page.getByRole("button", { name: "Create payment proposal" }).click();
+  await expect(page.getByText("Payment proposed")).toBeVisible();
+
+  await page.getByRole("button", { name: "Verifier" }).click();
+  await page.getByRole("button", { name: "Approve payment request" }).click();
+  await expect(page.getByText("Payment approved", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Investor" }).click();
+  await page.getByRole("button", { name: "Accept payment request" }).click();
+  await expect(page.getByText("Wallet request ready")).toBeVisible();
+  await expect(page.getByText("Active payment request contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("Allocation request visible");
 });

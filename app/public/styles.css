@@ -660,10 +660,11 @@ h2 {
 
 .contract-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(7, minmax(72px, 1fr));
   gap: 4px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
+  overflow-x: auto;
 }
 
 .contract-tabs button {

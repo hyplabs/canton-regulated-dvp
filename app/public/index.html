@@ -194,6 +194,18 @@
             </button>
           </div>
 
+          <div id="payment-authorization-panel" class="action-confirmation" hidden>
+            <dl>
+              <div><dt>Stage</dt><dd id="payment-action-stage"></dd></div>
+              <div><dt>Asset</dt><dd id="payment-action-asset"></dd></div>
+              <div><dt>Payment</dt><dd id="payment-action-amount"></dd></div>
+              <div><dt>Settle before</dt><dd id="payment-action-deadline"></dd></div>
+            </dl>
+            <button id="payment-action-button" class="primary-button" type="button" disabled>
+              <i data-lucide="send"></i><span>Propose payment</span>
+            </button>
+          </div>
+
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -218,6 +230,9 @@
           <button type="button" role="tab" data-contract-kind="offer" disabled>Offer</button>
           <button type="button" role="tab" data-contract-kind="compliance" disabled>Compliance</button>
           <button type="button" role="tab" data-contract-kind="agreement" disabled>Agreement</button>
+          <button type="button" role="tab" data-contract-kind="paymentProposal" disabled>Proposal</button>
+          <button type="button" role="tab" data-contract-kind="approvedPayment" disabled>Approval</button>
+          <button type="button" role="tab" data-contract-kind="paymentRequest" disabled>Request</button>
         </div>
 
         <div id="inspector-empty" class="inspector-empty">

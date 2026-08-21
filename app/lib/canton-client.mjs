@@ -3,7 +3,10 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const MODULE_ID = "#canton-regulated-settlement-model:Settlement.Regulated";
+const TOKENIZED_MODULE_ID =
+  "#canton-tokenized-settlement-model:Settlement.TokenizedPayment";
 const templateId = (template) => `${MODULE_ID}:${template}`;
+const tokenizedTemplateId = (template) => `${TOKENIZED_MODULE_ID}:${template}`;
 
 const CONTEXT_SCRIPT = String.raw`
 set -eo pipefail
@@ -16,10 +19,12 @@ source /app/app-user-auth.sh 2>/dev/null
 jq -nc \
   --arg providerToken "$provider_token" \
   --arg userToken "$APP_USER_PARTICIPANT_ADMIN_TOKEN" \
+  --arg userWalletToken "$APP_USER_WALLET_ADMIN_TOKEN" \
   --arg providerParty "$provider_party" \
   --arg investorParty "$APP_USER_PARTY" \
-  '{providerToken:$providerToken,userToken:$userToken,
-    providerParty:$providerParty,investorParty:$investorParty}'
+  --arg dsoParty "$DSO_PARTY" \
+  '{providerToken:$providerToken,userToken:$userToken,userWalletToken:$userWalletToken,
+    providerParty:$providerParty,investorParty:$investorParty,dsoParty:$dsoParty}'
 `;
 
 export class CantonApiError extends Error {
@@ -164,11 +169,14 @@ export class CantonClient {
     contextLoader = loadLocalNetContext,
     providerLedgerUrl = process.env.CANTON_PROVIDER_LEDGER_URL ?? "http://127.0.0.1:3975",
     userLedgerUrl = process.env.CANTON_USER_LEDGER_URL ?? "http://127.0.0.1:2975",
+    userValidatorUrl = process.env.CANTON_USER_VALIDATOR_URL ??
+      "http://127.0.0.1:2903/api/validator",
   } = {}) {
     this.fetch = fetchImpl;
     this.contextLoader = contextLoader;
     this.providerLedgerUrl = providerLedgerUrl.replace(/\/$/, "");
     this.userLedgerUrl = userLedgerUrl.replace(/\/$/, "");
+    this.userValidatorUrl = userValidatorUrl.replace(/\/$/, "");
     this.context = null;
   }
 
@@ -420,6 +428,210 @@ export class CantonClient {
       eligibilityAttestationCid: payload.eligibilityAttestationCid,
       settleBefore: payload.settleBefore,
     };
+  }
+
+  async createTokenizedPaymentProposal(input = {}) {
+    const agreementContractId = validateContractId(input.agreementContractId);
+    const [context, agreement] = await Promise.all([
+      this.getContext(),
+      this.getPurchaseAgreement(agreementContractId),
+    ]);
+    if (agreement.status !== "active") {
+      throw new CantonApiError("Purchase agreement is not active.", {
+        status: 409,
+        code: "AGREEMENT_INACTIVE",
+      });
+    }
+
+    const now = Date.now();
+    const settleBefore = Date.parse(agreement.settleBefore);
+    const allocateBefore = Math.min(now + 60 * 60 * 1000, settleBefore - 60 * 1000);
+    if (!Number.isFinite(settleBefore) || allocateBefore <= now) {
+      throw new CantonApiError("The agreement is too close to its settlement deadline.", {
+        status: 409,
+        code: "SETTLEMENT_DEADLINE_TOO_CLOSE",
+      });
+    }
+
+    const createArguments = {
+      requestId: `regulated-ui-${Date.now()}-${crypto.randomUUID()}`,
+      terms: agreement.terms,
+      agreementCid: agreementContractId,
+      eligibilityAttestationCid: agreement.eligibilityAttestationCid,
+      paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+      requestedAt: new Date(now).toISOString(),
+      allocateBefore: new Date(allocateBefore).toISOString(),
+      settleBefore: agreement.settleBefore,
+    };
+    const transaction = await this.submitCommand({
+      command: {
+        CreateCommand: {
+          templateId: tokenizedTemplateId("TokenizedPaymentProposal"),
+          createArguments,
+        },
+      },
+      commandName: "ui-payment-proposal",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const created = extractCreatedEvent(
+      transaction,
+      ":Settlement.TokenizedPayment:TokenizedPaymentProposal",
+    );
+    return this.getTokenizedPaymentProposal(created.contractId);
+  }
+
+  async getTokenizedPaymentProposal(contractId) {
+    return this.getPaymentAuthorizationContract(
+      contractId,
+      "paymentProposal",
+      "TokenizedPaymentProposal",
+      "payment proposal",
+    );
+  }
+
+  async approveTokenizedPayment(proposalContractId) {
+    validateContractId(proposalContractId);
+    const [context, proposal] = await Promise.all([
+      this.getContext(),
+      this.getTokenizedPaymentProposal(proposalContractId),
+    ]);
+    if (proposal.status !== "active") {
+      throw new CantonApiError("Payment proposal is not active.", {
+        status: 409,
+        code: "PAYMENT_PROPOSAL_INACTIVE",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: tokenizedTemplateId("TokenizedPaymentProposal"),
+          contractId: proposalContractId,
+          choice: "ApproveTokenizedPayment",
+          choiceArgument: {},
+        },
+      },
+      commandName: "ui-approve-payment",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const created = extractCreatedEvent(
+      transaction,
+      ":Settlement.TokenizedPayment:ApprovedTokenizedPayment",
+    );
+    const [archivedProposal, approvedPayment] = await Promise.all([
+      this.getTokenizedPaymentProposal(proposalContractId),
+      this.getApprovedTokenizedPayment(created.contractId),
+    ]);
+    return { paymentProposal: archivedProposal, approvedPayment };
+  }
+
+  async getApprovedTokenizedPayment(contractId) {
+    return this.getPaymentAuthorizationContract(
+      contractId,
+      "approvedPayment",
+      "ApprovedTokenizedPayment",
+      "approved payment",
+    );
+  }
+
+  async acceptTokenizedPayment(approvedContractId) {
+    validateContractId(approvedContractId);
+    const [context, approvedPayment] = await Promise.all([
+      this.getContext(),
+      this.getApprovedTokenizedPayment(approvedContractId),
+    ]);
+    if (approvedPayment.status !== "active") {
+      throw new CantonApiError("Approved payment is not active.", {
+        status: 409,
+        code: "APPROVED_PAYMENT_INACTIVE",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: tokenizedTemplateId("ApprovedTokenizedPayment"),
+          contractId: approvedContractId,
+          choice: "AcceptTokenizedPayment",
+          choiceArgument: {},
+        },
+      },
+      commandName: "ui-accept-payment",
+      actor: context.investorParty,
+      token: context.userToken,
+      ledgerUrl: this.userLedgerUrl,
+    });
+    const created = extractCreatedEvent(
+      transaction,
+      ":Settlement.TokenizedPayment:TokenizedPaymentRequest",
+    );
+    const [archivedApproval, paymentRequest] = await Promise.all([
+      this.getApprovedTokenizedPayment(approvedContractId),
+      this.getTokenizedPaymentRequest(created.contractId, { waitForWallet: true }),
+    ]);
+    return { approvedPayment: archivedApproval, paymentRequest };
+  }
+
+  async getTokenizedPaymentRequest(contractId, { waitForWallet = false } = {}) {
+    const contract = await this.getPaymentAuthorizationContract(
+      contractId,
+      "paymentRequest",
+      "TokenizedPaymentRequest",
+      "payment request",
+    );
+    contract.walletDiscovered = waitForWallet
+      ? await this.waitForWalletDiscovery(contractId)
+      : await this.isWalletRequestVisible(contractId);
+    return contract;
+  }
+
+  async getPaymentAuthorizationContract(contractId, kind, template, label) {
+    const contract = await this.getContract(contractId, label);
+    const { created, payload } = contract;
+    return {
+      kind,
+      contractId,
+      templateId: created.templateId ?? tokenizedTemplateId(template),
+      status: contract.status,
+      requestId: payload.requestId,
+      terms: payload.terms,
+      agreementCid: payload.agreementCid,
+      eligibilityAttestationCid: payload.eligibilityAttestationCid,
+      paymentInstrumentId: payload.paymentInstrumentId,
+      requestedAt: payload.requestedAt,
+      allocateBefore: payload.allocateBefore,
+      settleBefore: payload.settleBefore,
+    };
+  }
+
+  async isWalletRequestVisible(contractId) {
+    try {
+      const context = await this.getContext();
+      const requests = await this.request(
+        "GET",
+        "/v0/wallet/token-standard/allocation-requests",
+        undefined,
+        context.userWalletToken,
+        this.userValidatorUrl,
+      );
+      return (requests.allocation_requests ?? []).some(
+        (request) => request?.contract?.contract_id === contractId,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  async waitForWalletDiscovery(contractId) {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (await this.isWalletRequestVisible(contractId)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return false;
   }
 
   async getContract(contractId, label) {

@@ -149,6 +149,75 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/payment-proposals") {
+        sendJson(
+          response,
+          201,
+          await cantonClient.createTokenizedPaymentProposal(await readJson(request)),
+        );
+        return;
+      }
+
+      const approvePaymentMatch = url.pathname.match(
+        /^\/api\/payment-proposals\/([^/]+)\/approve$/,
+      );
+      if (request.method === "POST" && approvePaymentMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.approveTokenizedPayment(decodeURIComponent(approvePaymentMatch[1])),
+        );
+        return;
+      }
+
+      const paymentProposalMatch = url.pathname.match(/^\/api\/payment-proposals\/([^/]+)$/);
+      if (request.method === "GET" && paymentProposalMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getTokenizedPaymentProposal(
+            decodeURIComponent(paymentProposalMatch[1]),
+          ),
+        );
+        return;
+      }
+
+      const acceptPaymentMatch = url.pathname.match(
+        /^\/api\/approved-payments\/([^/]+)\/accept$/,
+      );
+      if (request.method === "POST" && acceptPaymentMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.acceptTokenizedPayment(decodeURIComponent(acceptPaymentMatch[1])),
+        );
+        return;
+      }
+
+      const approvedPaymentMatch = url.pathname.match(/^\/api\/approved-payments\/([^/]+)$/);
+      if (request.method === "GET" && approvedPaymentMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getApprovedTokenizedPayment(
+            decodeURIComponent(approvedPaymentMatch[1]),
+          ),
+        );
+        return;
+      }
+
+      const paymentRequestMatch = url.pathname.match(/^\/api\/payment-requests\/([^/]+)$/);
+      if (request.method === "GET" && paymentRequestMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getTokenizedPaymentRequest(
+            decodeURIComponent(paymentRequestMatch[1]),
+          ),
+        );
+        return;
+      }
+
       if (request.method === "GET" && url.pathname === "/vendor/lucide.js") {
         if (!(await sendFile(response, lucidePath))) {
           sendJson(response, 503, {
