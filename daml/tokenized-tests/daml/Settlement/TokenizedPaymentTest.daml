@@ -5,6 +5,7 @@ import DA.TextMap as TextMap
 import DA.Time (addRelTime, days)
 import Daml.Script
 
+import Settlement.PrivateCreditToken
 import Settlement.Regulated
 import Settlement.TokenizedPayment
 import Splice.Api.Token.AllocationRequestV1
@@ -19,7 +20,7 @@ data TokenizedTestParties = TokenizedTestParties
     verifier : Party
     custodian : Party
     auditor : Party
-    instrumentAdmin : Party
+    paymentInstrumentAdmin : Party
   deriving (Eq, Show)
 
 data TokenizedRequestFixture = TokenizedRequestFixture
@@ -29,10 +30,11 @@ data TokenizedRequestFixture = TokenizedRequestFixture
     agreementCid : ContractId PurchaseAgreement
     requestCid : ContractId TokenizedPaymentRequest
     request : TokenizedPaymentRequest
-    expectedAllocation : AllocationSpecification
+    expectedPaymentAllocation : AllocationSpecification
+    expectedDeliveryAllocation : AllocationSpecification
   deriving (Eq, Show)
 
-template MockAllocation
+template MockPaymentAllocation
   with
     allocation : AllocationSpecification
   where
@@ -41,14 +43,14 @@ template MockAllocation
     observer allocation.settlement.executor,
       allocation.transferLeg.receiver
 
-    interface instance Allocation for MockAllocation where
+    interface instance Allocation for MockPaymentAllocation where
       view = AllocationView with
         allocation
         holdingCids = []
         meta = emptyMetadata
 
       allocation_executeTransferImpl _ _ = do
-        _ <- create MockTransferReceipt with allocation
+        _ <- create MockPaymentTransferReceipt with allocation
         pure Allocation_ExecuteTransferResult with
           senderHoldingCids = []
           receiverHoldingCids = []
@@ -64,7 +66,7 @@ template MockAllocation
           senderHoldingCids = []
           meta = emptyMetadata
 
-template MockTransferReceipt
+template MockPaymentTransferReceipt
   with
     allocation : AllocationSpecification
   where
@@ -79,8 +81,8 @@ allocateParties prefix = do
   verifier <- allocatePartyByHint (PartyIdHint (prefix <> "-verifier"))
   custodian <- allocatePartyByHint (PartyIdHint (prefix <> "-custodian"))
   auditor <- allocatePartyByHint (PartyIdHint (prefix <> "-auditor"))
-  instrumentAdmin <-
-    allocatePartyByHint (PartyIdHint (prefix <> "-instrument-admin"))
+  paymentInstrumentAdmin <-
+    allocatePartyByHint (PartyIdHint (prefix <> "-payment-admin"))
   pure TokenizedTestParties with ..
 
 termsFor : TokenizedTestParties -> SettlementTerms
@@ -105,8 +107,11 @@ setupRequestFixture prefix = do
   let allocateBefore = now `addRelTime` days 2
   let settleBefore = now `addRelTime` days 7
   let paymentInstrumentId = InstrumentId with
-        admin = parties.instrumentAdmin
+        admin = parties.paymentInstrumentAdmin
         id = terms.paymentInstrumentId
+  let assetInstrumentId = InstrumentId with
+        admin = parties.custodian
+        id = terms.assetId
 
   eligibilityAttestationCid <- submit parties.verifier do
     createCmd EligibilityAttestation with
@@ -127,7 +132,7 @@ setupRequestFixture prefix = do
   agreementCid <- submit parties.verifier do
     exerciseCmd compliancePendingCid ApproveCompliance
 
-  let requestId = prefix <> "-payment-001"
+  let requestId = prefix <> "-dvp-001"
   proposalCid <- submit parties.issuer do
     createCmd TokenizedPaymentProposal with
       requestId
@@ -135,184 +140,229 @@ setupRequestFixture prefix = do
       agreementCid
       eligibilityAttestationCid
       paymentInstrumentId
+      assetInstrumentId
       requestedAt = now
       allocateBefore
       settleBefore
 
-  approvedCid <- submit parties.verifier do
+  deliveryPendingCid <- submit parties.verifier do
     exerciseCmd proposalCid ApproveTokenizedPayment
+
+  approvedCid <- submit parties.custodian do
+    exerciseCmd deliveryPendingCid ApprovePrivateCreditDelivery
 
   requestCid <- submit parties.investor do
     exerciseCmd approvedCid AcceptTokenizedPayment
 
   Some request <- queryContractId parties.investor requestCid
   let requestView = view $ toInterface @AllocationRequest request
-  let transferLeg =
+  let paymentTransferLeg =
         fromSome $ TextMap.lookup paymentLegId requestView.transferLegs
-  let expectedAllocation = AllocationSpecification with
+  let deliveryTransferLeg =
+        fromSome $ TextMap.lookup deliveryLegId requestView.transferLegs
+  let expectedPaymentAllocation = AllocationSpecification with
         settlement = requestView.settlement
         transferLegId = paymentLegId
-        transferLeg
+        transferLeg = paymentTransferLeg
+  let expectedDeliveryAllocation = AllocationSpecification with
+        settlement = requestView.settlement
+        transferLegId = deliveryLegId
+        transferLeg = deliveryTransferLeg
 
   pure TokenizedRequestFixture with ..
 
-createMockAllocation
+createMockPaymentAllocation
   : TokenizedRequestFixture
   -> AllocationSpecification
-  -> Script (ContractId MockAllocation)
-createMockAllocation fixture allocation =
+  -> Script (ContractId MockPaymentAllocation)
+createMockPaymentAllocation fixture allocation =
   submit (actAs
-    [fixture.parties.instrumentAdmin, fixture.parties.investor]) do
-    createCmd MockAllocation with ..
+    [fixture.parties.paymentInstrumentAdmin, fixture.parties.investor]) do
+    createCmd MockPaymentAllocation with ..
 
-completePayment
+completeDvP
   : TokenizedRequestFixture
-  -> ContractId MockAllocation
-  -> Script (ContractId PaymentPrepared)
-completePayment fixture allocationCid =
+  -> ContractId MockPaymentAllocation
+  -> Script (ContractId TokenizedSettlementReceipt)
+completeDvP fixture paymentAllocationCid =
   submit (actAs [fixture.parties.issuer, fixture.parties.verifier]) do
-    exerciseCmd fixture.requestCid CompleteTokenizedPayment with
-      allocationCid = toInterfaceContractId allocationCid
-      extraArgs = ExtraArgs with
-        context = emptyChoiceContext
-        meta = emptyMetadata
+    exerciseCmd fixture.requestCid CompleteTokenizedDvP with
+      paymentAllocationCid = toInterfaceContractId paymentAllocationCid
+      paymentExtraArgs = emptyExtraArgs
+      deliveryExtraArgs = emptyExtraArgs
 
-completePaymentMustFail
+completeDvPMustFail
   : TokenizedRequestFixture
-  -> ContractId MockAllocation
+  -> ContractId MockPaymentAllocation
   -> Script ()
-completePaymentMustFail fixture allocationCid =
+completeDvPMustFail fixture paymentAllocationCid =
   submitMustFail (actAs
     [fixture.parties.issuer, fixture.parties.verifier]) do
-    exerciseCmd fixture.requestCid CompleteTokenizedPayment with
-      allocationCid = toInterfaceContractId allocationCid
-      extraArgs = ExtraArgs with
-        context = emptyChoiceContext
-        meta = emptyMetadata
+    exerciseCmd fixture.requestCid CompleteTokenizedDvP with
+      paymentAllocationCid = toInterfaceContractId paymentAllocationCid
+      paymentExtraArgs = emptyExtraArgs
+      deliveryExtraArgs = emptyExtraArgs
 
-finishSettlement
-  : TokenizedRequestFixture
-  -> ContractId PaymentPrepared
-  -> Script (ContractId SettlementReceipt)
-finishSettlement fixture paymentPreparedCid = do
-  readyCid <- submit fixture.parties.custodian do
-    exerciseCmd paymentPreparedCid ConfirmDelivery with
-      deliveryRef = fixture.request.requestId <> "-delivery"
+emptyExtraArgs : ExtraArgs
+emptyExtraArgs = ExtraArgs with
+  context = emptyChoiceContext
+  meta = emptyMetadata
 
-  submit (actAs [fixture.parties.issuer, fixture.parties.verifier]) do
-    exerciseCmd readyCid FinalizeSettlement
-
-setupTokenizedPaymentDemo : Script (ContractId SettlementReceipt)
+setupTokenizedPaymentDemo : Script (ContractId TokenizedSettlementReceipt)
 setupTokenizedPaymentDemo = do
   fixture <- setupRequestFixture "token-demo"
-  allocationCid <- createMockAllocation fixture fixture.expectedAllocation
-  paymentPreparedCid <- completePayment fixture allocationCid
-  finishSettlement fixture paymentPreparedCid
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
+  completeDvP fixture paymentAllocationCid
 
-testTokenizedPaymentHappyPath : Script ()
-testTokenizedPaymentHappyPath = script do
+testTokenizedDvPHappyPath : Script ()
+testTokenizedDvPHappyPath = script do
   fixture <- setupRequestFixture "token-happy"
-  allocationCid <- createMockAllocation fixture fixture.expectedAllocation
-  paymentPreparedCid <- completePayment fixture allocationCid
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
 
-  Some paymentPrepared <-
-    queryContractId fixture.parties.custodian paymentPreparedCid
-  assertMsg "Payment evidence is the token-standard settlement reference"
-    (paymentPrepared.paymentRef == fixture.request.requestId)
+  [(_, lockedHolding)] <-
+    query @PrivateCreditLockedHolding fixture.parties.custodian
+  assertMsg "Custodian reserved the exact private-credit delivery"
+    (lockedHolding.amount == intToDecimal fixture.terms.units)
 
+  receiptCid <- completeDvP fixture paymentAllocationCid
+
+  None <- queryContractId fixture.parties.issuer fixture.requestCid
   None <- queryContractId fixture.parties.issuer fixture.agreementCid
-  None <- queryContractId fixture.parties.issuer allocationCid
+  None <- queryContractId fixture.parties.issuer paymentAllocationCid
+  None <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
+  [] <- query @PrivateCreditLockedHolding fixture.parties.custodian
 
-  [(_, transferReceipt)] <-
-    query @MockTransferReceipt fixture.parties.investor
-  assertMsg "The allocation interface executed the exact requested leg"
-    (transferReceipt.allocation == fixture.expectedAllocation)
+  [(_, paymentReceipt)] <-
+    query @MockPaymentTransferReceipt fixture.parties.investor
+  assertMsg "The Canton Coin allocation executed the requested payment leg"
+    (paymentReceipt.allocation == fixture.expectedPaymentAllocation)
 
-  settlementReceiptCid <- finishSettlement fixture paymentPreparedCid
-  Some settlementReceipt <-
-    queryContractId fixture.parties.auditor settlementReceiptCid
-  assertMsg "Final receipt retains the token-standard settlement reference"
-    (settlementReceipt.paymentRef == fixture.request.requestId)
+  [(_, assetHolding)] <- query @PrivateCreditHolding fixture.parties.investor
+  assertMsg "The investor received the tokenized private-credit units"
+    (assetHolding.owner == fixture.parties.investor
+      && assetHolding.instrumentId.id == fixture.terms.assetId
+      && assetHolding.amount == intToDecimal fixture.terms.units)
+
+  Some receipt <- queryContractId fixture.parties.auditor receiptCid
+  assertMsg "The final receipt references both executed allocations"
+    (receipt.requestId == fixture.request.requestId
+      && receipt.deliveryAllocationCid == fixture.request.deliveryAllocationCid
+      && receipt.assetHoldingCids /= [])
   pure ()
 
-testMismatchedAllocationCannotAdvanceWorkflow : Script ()
-testMismatchedAllocationCannotAdvanceWorkflow = script do
+testMismatchedPaymentCannotSettle : Script ()
+testMismatchedPaymentCannotSettle = script do
   fixture <- setupRequestFixture "token-mismatch"
-  let wrongTransferLeg = fixture.expectedAllocation.transferLeg with
+  let wrongTransferLeg = fixture.expectedPaymentAllocation.transferLeg with
         amount = fixture.terms.paymentAmount + 1.0
-  let wrongAllocation = fixture.expectedAllocation with
+  let wrongAllocation = fixture.expectedPaymentAllocation with
         transferLeg = wrongTransferLeg
-  allocationCid <- createMockAllocation fixture wrongAllocation
+  paymentAllocationCid <- createMockPaymentAllocation fixture wrongAllocation
 
-  completePaymentMustFail fixture allocationCid
+  completeDvPMustFail fixture paymentAllocationCid
 
   Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
   Some _ <- queryContractId fixture.parties.issuer fixture.agreementCid
-  Some _ <- queryContractId fixture.parties.issuer allocationCid
-  [] <- query @MockTransferReceipt fixture.parties.investor
+  Some _ <- queryContractId fixture.parties.issuer paymentAllocationCid
+  Some _ <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
+  [] <- query @MockPaymentTransferReceipt fixture.parties.investor
+  [] <- query @PrivateCreditHolding fixture.parties.investor
+  [] <- query @TokenizedSettlementReceipt fixture.parties.auditor
   pure ()
 
-testAllocationForDifferentSettlementCannotAdvanceWorkflow : Script ()
-testAllocationForDifferentSettlementCannotAdvanceWorkflow = script do
+testPaymentForDifferentSettlementCannotSettle : Script ()
+testPaymentForDifferentSettlementCannotSettle = script do
   fixture <- setupRequestFixture "token-wrong-settlement"
   let wrongSettlementRef =
-        fixture.expectedAllocation.settlement.settlementRef with cid = None
-  let wrongSettlement = fixture.expectedAllocation.settlement with
+        fixture.expectedPaymentAllocation.settlement.settlementRef with cid = None
+  let wrongSettlement = fixture.expectedPaymentAllocation.settlement with
         settlementRef = wrongSettlementRef
-  let wrongAllocation = fixture.expectedAllocation with
+  let wrongAllocation = fixture.expectedPaymentAllocation with
         settlement = wrongSettlement
-  allocationCid <- createMockAllocation fixture wrongAllocation
+  paymentAllocationCid <- createMockPaymentAllocation fixture wrongAllocation
 
-  completePaymentMustFail fixture allocationCid
+  completeDvPMustFail fixture paymentAllocationCid
 
   Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
-  Some _ <- queryContractId fixture.parties.issuer fixture.agreementCid
-  Some _ <- queryContractId fixture.parties.issuer allocationCid
+  Some _ <- queryContractId fixture.parties.issuer paymentAllocationCid
+  Some _ <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
   pure ()
 
-testInactiveAllocationCannotAdvanceWorkflow : Script ()
-testInactiveAllocationCannotAdvanceWorkflow = script do
-  fixture <- setupRequestFixture "token-inactive-allocation"
-  allocationCid <- createMockAllocation fixture fixture.expectedAllocation
+testInactivePaymentAllocationCannotSettle : Script ()
+testInactivePaymentAllocationCannotSettle = script do
+  fixture <- setupRequestFixture "token-inactive-payment"
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
 
   submit (actAs
-    [fixture.parties.instrumentAdmin, fixture.parties.investor]) do
-    archiveCmd allocationCid
+    [fixture.parties.paymentInstrumentAdmin, fixture.parties.investor]) do
+    archiveCmd paymentAllocationCid
 
-  completePaymentMustFail fixture allocationCid
+  completeDvPMustFail fixture paymentAllocationCid
+
+  Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
+  None <- queryContractId fixture.parties.issuer paymentAllocationCid
+  Some _ <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
+  pure ()
+
+testBrokenDeliveryRollsBackPayment : Script ()
+testBrokenDeliveryRollsBackPayment = script do
+  fixture <- setupRequestFixture "token-broken-delivery"
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
+  [(lockedHoldingCid, _)] <-
+    query @PrivateCreditLockedHolding fixture.parties.custodian
+
+  submit fixture.parties.custodian do
+    archiveCmd lockedHoldingCid
+
+  completeDvPMustFail fixture paymentAllocationCid
 
   Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
   Some _ <- queryContractId fixture.parties.issuer fixture.agreementCid
-  None <- queryContractId fixture.parties.issuer allocationCid
+  Some _ <- queryContractId fixture.parties.issuer paymentAllocationCid
+  Some _ <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
+  [] <- query @MockPaymentTransferReceipt fixture.parties.investor
+  [] <- query @PrivateCreditHolding fixture.parties.investor
+  [] <- query @TokenizedSettlementReceipt fixture.parties.auditor
   pure ()
 
-testExpiredTokenizedPaymentCannotAdvanceWorkflow : Script ()
-testExpiredTokenizedPaymentCannotAdvanceWorkflow = script do
-  fixture <- setupRequestFixture "token-expired-payment"
-  allocationCid <- createMockAllocation fixture fixture.expectedAllocation
+testExpiredTokenizedDvPCannotSettle : Script ()
+testExpiredTokenizedDvPCannotSettle = script do
+  fixture <- setupRequestFixture "token-expired"
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
   passTime (days 8)
 
-  completePaymentMustFail fixture allocationCid
+  completeDvPMustFail fixture paymentAllocationCid
 
   Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
-  Some _ <- queryContractId fixture.parties.issuer fixture.agreementCid
-  Some _ <- queryContractId fixture.parties.issuer allocationCid
-  [] <- query @MockTransferReceipt fixture.parties.investor
+  Some _ <- queryContractId fixture.parties.issuer paymentAllocationCid
+  [] <- query @MockPaymentTransferReceipt fixture.parties.investor
+  [] <- query @PrivateCreditHolding fixture.parties.investor
   pure ()
 
-testWrongPartyCannotCompleteTokenizedPayment : Script ()
-testWrongPartyCannotCompleteTokenizedPayment = script do
+testWrongPartyCannotCompleteTokenizedDvP : Script ()
+testWrongPartyCannotCompleteTokenizedDvP = script do
   fixture <- setupRequestFixture "token-wrong-party"
-  allocationCid <- createMockAllocation fixture fixture.expectedAllocation
+  paymentAllocationCid <-
+    createMockPaymentAllocation fixture fixture.expectedPaymentAllocation
 
   submitMustFail fixture.parties.investor do
-    exerciseCmd fixture.requestCid CompleteTokenizedPayment with
-      allocationCid = toInterfaceContractId allocationCid
-      extraArgs = ExtraArgs with
-        context = emptyChoiceContext
-        meta = emptyMetadata
+    exerciseCmd fixture.requestCid CompleteTokenizedDvP with
+      paymentAllocationCid = toInterfaceContractId paymentAllocationCid
+      paymentExtraArgs = emptyExtraArgs
+      deliveryExtraArgs = emptyExtraArgs
 
   Some _ <- queryContractId fixture.parties.issuer fixture.requestCid
-  Some _ <- queryContractId fixture.parties.issuer fixture.agreementCid
-  Some _ <- queryContractId fixture.parties.issuer allocationCid
+  Some _ <- queryContractId fixture.parties.issuer paymentAllocationCid
+  Some _ <- queryInterfaceContractId
+    fixture.parties.issuer fixture.request.deliveryAllocationCid
   pure ()

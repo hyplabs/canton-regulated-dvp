@@ -3,14 +3,18 @@ module Settlement.TokenizedPayment where
 import DA.Optional (fromSome)
 import DA.TextMap as TextMap
 
+import Settlement.PrivateCreditToken
 import Settlement.Regulated
 import Splice.Api.Token.AllocationRequestV1
 import Splice.Api.Token.AllocationV1
-import Splice.Api.Token.HoldingV1 (InstrumentId)
+import Splice.Api.Token.HoldingV1 (Holding, InstrumentId)
 import Splice.Api.Token.MetadataV1
 
 paymentLegId : Text
 paymentLegId = "payment"
+
+deliveryLegId : Text
+deliveryLegId = "delivery"
 
 template TokenizedPaymentProposal
   with
@@ -19,24 +23,66 @@ template TokenizedPaymentProposal
     agreementCid : ContractId PurchaseAgreement
     eligibilityAttestationCid : ContractId EligibilityAttestation
     paymentInstrumentId : InstrumentId
+    assetInstrumentId : InstrumentId
     requestedAt : Time
     allocateBefore : Time
     settleBefore : Time
   where
     signatory terms.issuer
-    observer terms.investor, terms.verifier
+    observer terms.investor, terms.verifier, terms.custodian
     ensure
-      validTokenizedPaymentRequest
-        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
+      validTokenizedSettlementRequest
+        requestId terms paymentInstrumentId assetInstrumentId
+        requestedAt allocateBefore settleBefore
 
-    choice ApproveTokenizedPayment : ContractId ApprovedTokenizedPayment
+    choice ApproveTokenizedPayment : ContractId DeliveryApprovalPending
       controller terms.verifier
       do
         now <- getTime
-        require "Payment allocation deadline has not passed"
-          (now < allocateBefore)
-        validateTokenizedPaymentReferences
+        require "Allocation deadline has not passed" (now < allocateBefore)
+        validateTokenizedSettlementReferences
           now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
+
+        create DeliveryApprovalPending with ..
+
+template DeliveryApprovalPending
+  with
+    requestId : Text
+    terms : SettlementTerms
+    agreementCid : ContractId PurchaseAgreement
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    paymentInstrumentId : InstrumentId
+    assetInstrumentId : InstrumentId
+    requestedAt : Time
+    allocateBefore : Time
+    settleBefore : Time
+  where
+    signatory terms.issuer, terms.verifier
+    observer terms.investor, terms.custodian
+    ensure
+      validTokenizedSettlementRequest
+        requestId terms paymentInstrumentId assetInstrumentId
+        requestedAt allocateBefore settleBefore
+
+    choice ApprovePrivateCreditDelivery : ContractId ApprovedTokenizedPayment
+      controller terms.custodian
+      do
+        now <- getTime
+        require "Allocation deadline has not passed" (now < allocateBefore)
+        validateTokenizedSettlementAgreement
+          now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
+
+        let requestView = tokenizedSettlementRequestView
+              requestId terms agreementCid paymentInstrumentId assetInstrumentId
+              requestedAt allocateBefore settleBefore
+        let deliveryTransferLeg =
+              fromSome $ TextMap.lookup deliveryLegId requestView.transferLegs
+        let deliveryAllocation = AllocationSpecification with
+              settlement = requestView.settlement
+              transferLegId = deliveryLegId
+              transferLeg = deliveryTransferLeg
+        deliveryAllocationCid <- reservePrimaryIssuance
+          terms.custodian terms.issuer deliveryAllocation
 
         create ApprovedTokenizedPayment with ..
 
@@ -47,23 +93,25 @@ template ApprovedTokenizedPayment
     agreementCid : ContractId PurchaseAgreement
     eligibilityAttestationCid : ContractId EligibilityAttestation
     paymentInstrumentId : InstrumentId
+    assetInstrumentId : InstrumentId
     requestedAt : Time
     allocateBefore : Time
     settleBefore : Time
+    deliveryAllocationCid : ContractId Allocation
   where
-    signatory terms.issuer, terms.verifier
+    signatory terms.issuer, terms.verifier, terms.custodian
     observer terms.investor
     ensure
-      validTokenizedPaymentRequest
-        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
+      validTokenizedSettlementRequest
+        requestId terms paymentInstrumentId assetInstrumentId
+        requestedAt allocateBefore settleBefore
 
     choice AcceptTokenizedPayment : ContractId TokenizedPaymentRequest
       controller terms.investor
       do
         now <- getTime
-        require "Payment allocation deadline has not passed"
-          (now < allocateBefore)
-        validateTokenizedPaymentReferences
+        require "Allocation deadline has not passed" (now < allocateBefore)
+        validateTokenizedSettlementReferences
           now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
 
         create TokenizedPaymentRequest with ..
@@ -75,91 +123,132 @@ template TokenizedPaymentRequest
     agreementCid : ContractId PurchaseAgreement
     eligibilityAttestationCid : ContractId EligibilityAttestation
     paymentInstrumentId : InstrumentId
+    assetInstrumentId : InstrumentId
     requestedAt : Time
     allocateBefore : Time
     settleBefore : Time
+    deliveryAllocationCid : ContractId Allocation
   where
-    signatory terms.issuer, terms.investor, terms.verifier
-    observer terms.custodian
+    signatory terms.issuer, terms.investor, terms.verifier, terms.custodian
     ensure
-      validTokenizedPaymentRequest
-        requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore
+      validTokenizedSettlementRequest
+        requestId terms paymentInstrumentId assetInstrumentId
+        requestedAt allocateBefore settleBefore
 
-    postconsuming choice CompleteTokenizedPayment : ContractId PaymentPrepared
+    postconsuming choice CompleteTokenizedDvP : ContractId TokenizedSettlementReceipt
       with
-        allocationCid : ContractId Allocation
-        extraArgs : ExtraArgs
+        paymentAllocationCid : ContractId Allocation
+        paymentExtraArgs : ExtraArgs
+        deliveryExtraArgs : ExtraArgs
       controller terms.issuer, terms.verifier
       do
         now <- getTime
-        require "Payment request time is not in the future"
-          (requestedAt <= now)
-        require "Tokenized payment settlement deadline has not passed"
-          (now < settleBefore)
+        require "Settlement request time is not in the future" (requestedAt <= now)
+        require "Tokenized settlement deadline has not passed" (now < settleBefore)
 
-        purchaseAgreement <- fetch agreementCid
-        require "Payment request references these settlement terms"
-          (purchaseAgreement.terms == terms)
-        require "Payment request references this eligibility attestation"
-          (purchaseAgreement.eligibilityAttestationCid == eligibilityAttestationCid)
-        require "Payment request uses the agreement settlement deadline"
-          (purchaseAgreement.settleBefore == settleBefore)
+        validateTokenizedSettlementReferences
+          now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
 
-        attestation <- fetch eligibilityAttestationCid
-        validateEligibility now terms attestation
-
-        allocation <- fetch @Allocation allocationCid
-        let allocationView = view @Allocation allocation
         let requestView = tokenizedPaymentRequestView this
-        let expectedTransferLeg =
-              fromSome $ TextMap.lookup paymentLegId requestView.transferLegs
+        validateAllocation paymentLegId requestView paymentAllocationCid
+        validateAllocation deliveryLegId requestView deliveryAllocationCid
 
-        require "Allocation is for the payment leg"
-          (allocationView.allocation.transferLegId == paymentLegId)
-        require "Allocation matches the requested payment transfer"
-          (allocationView.allocation.transferLeg == expectedTransferLeg)
-        require "Allocation matches this settlement request"
-          (allocationView.allocation.settlement == requestView.settlement)
-
-        _ <- exercise allocationCid (Allocation_ExecuteTransfer extraArgs)
+        _ <- exercise paymentAllocationCid
+          (Allocation_ExecuteTransfer paymentExtraArgs)
+        deliveryResult <- exercise deliveryAllocationCid
+          (Allocation_ExecuteTransfer deliveryExtraArgs)
         archive agreementCid
 
-        create PaymentPrepared with
+        create TokenizedSettlementReceipt with
           terms
           eligibilityAttestationCid
-          settleBefore
-          paymentRef = requestId
+          requestId
+          paymentAllocationCid
+          deliveryAllocationCid
+          assetHoldingCids = deliveryResult.receiverHoldingCids
+          settledAt = now
 
     interface instance AllocationRequest for TokenizedPaymentRequest where
       view = tokenizedPaymentRequestView this
 
       allocationRequest_RejectImpl _ AllocationRequest_Reject{..} = do
-        require "Only the paying investor may reject the request"
-          (actor == terms.investor)
+        require "Only a delivering party may reject the request"
+          (actor == terms.investor || actor == terms.issuer)
         pure ChoiceExecutionMetadata with meta = emptyMetadata
 
       allocationRequest_WithdrawImpl _ _ =
         pure ChoiceExecutionMetadata with meta = emptyMetadata
 
+template TokenizedSettlementReceipt
+  with
+    terms : SettlementTerms
+    eligibilityAttestationCid : ContractId EligibilityAttestation
+    requestId : Text
+    paymentAllocationCid : ContractId Allocation
+    deliveryAllocationCid : ContractId Allocation
+    assetHoldingCids : [ContractId Holding]
+    settledAt : Time
+  where
+    signatory terms.issuer, terms.investor, terms.verifier, terms.custodian
+    observer terms.auditor
+    ensure
+      validSettlementTerms terms
+        && requestId /= ""
+        && assetHoldingCids /= []
+
+validateAllocation
+  : Text
+  -> AllocationRequestView
+  -> ContractId Allocation
+  -> Update ()
+validateAllocation legId requestView allocationCid = do
+  allocation <- fetch @Allocation allocationCid
+  let allocationView = view @Allocation allocation
+  let expectedTransferLeg = fromSome $ TextMap.lookup legId requestView.transferLegs
+  require "Allocation is for the expected settlement leg"
+    (allocationView.allocation.transferLegId == legId)
+  require "Allocation matches the requested transfer"
+    (allocationView.allocation.transferLeg == expectedTransferLeg)
+  require "Allocation matches this settlement request"
+    (allocationView.allocation.settlement == requestView.settlement)
+
 tokenizedPaymentRequestView
   : TokenizedPaymentRequest
   -> AllocationRequestView
 tokenizedPaymentRequestView TokenizedPaymentRequest{..} =
+  tokenizedSettlementRequestView
+    requestId terms agreementCid paymentInstrumentId assetInstrumentId
+    requestedAt allocateBefore settleBefore
+
+tokenizedSettlementRequestView
+  : Text
+  -> SettlementTerms
+  -> ContractId PurchaseAgreement
+  -> InstrumentId
+  -> InstrumentId
+  -> Time
+  -> Time
+  -> Time
+  -> AllocationRequestView
+tokenizedSettlementRequestView
+    requestId terms agreementCid paymentInstrumentId assetInstrumentId
+    requestedAt allocateBefore settleBefore =
   let meta = Metadata with
         values = TextMap.fromList
-          [ ("regulated-settlement.example/reason", "purchase-payment")
+          [ ("regulated-settlement.example/reason", "private-credit-dvp")
           , ("regulated-settlement.example/asset-id", terms.assetId)
           ]
+      settlement = SettlementInfo with
+        executor = terms.issuer
+        settlementRef = Reference with
+          id = requestId
+          cid = Some (coerceContractId agreementCid)
+        requestedAt
+        allocateBefore
+        settleBefore
+        meta
   in AllocationRequestView with
-    settlement = SettlementInfo with
-      executor = terms.issuer
-      settlementRef = Reference with
-        id = requestId
-        cid = Some (coerceContractId agreementCid)
-      requestedAt
-      allocateBefore
-      settleBefore
-      meta
+    settlement
     transferLegs = TextMap.fromList
       [ (paymentLegId, TransferLeg with
           sender = terms.investor
@@ -167,26 +256,36 @@ tokenizedPaymentRequestView TokenizedPaymentRequest{..} =
           amount = terms.paymentAmount
           instrumentId = paymentInstrumentId
           meta)
+      , (deliveryLegId, TransferLeg with
+          sender = terms.issuer
+          receiver = terms.investor
+          amount = intToDecimal terms.units
+          instrumentId = assetInstrumentId
+          meta)
       ]
     meta
 
-validTokenizedPaymentRequest
+validTokenizedSettlementRequest
   : Text
   -> SettlementTerms
+  -> InstrumentId
   -> InstrumentId
   -> Time
   -> Time
   -> Time
   -> Bool
-validTokenizedPaymentRequest
-    requestId terms paymentInstrumentId requestedAt allocateBefore settleBefore =
+validTokenizedSettlementRequest
+    requestId terms paymentInstrumentId assetInstrumentId
+    requestedAt allocateBefore settleBefore =
   validSettlementTerms terms
     && requestId /= ""
     && terms.paymentInstrumentId == paymentInstrumentId.id
+    && terms.assetId == assetInstrumentId.id
+    && assetInstrumentId.admin == terms.custodian
     && requestedAt < allocateBefore
     && allocateBefore < settleBefore
 
-validateTokenizedPaymentReferences
+validateTokenizedSettlementReferences
   : Time
   -> SettlementTerms
   -> ContractId PurchaseAgreement
@@ -194,20 +293,31 @@ validateTokenizedPaymentReferences
   -> Time
   -> Time
   -> Update ()
-validateTokenizedPaymentReferences
+validateTokenizedSettlementReferences
     now terms agreementCid eligibilityAttestationCid requestedAt settleBefore = do
-  require "Payment request time is not in the future"
-    (requestedAt <= now)
-  require "Tokenized payment settlement deadline has not passed"
-    (now < settleBefore)
-
-  purchaseAgreement <- fetch agreementCid
-  require "Payment request references these settlement terms"
-    (purchaseAgreement.terms == terms)
-  require "Payment request references this eligibility attestation"
-    (purchaseAgreement.eligibilityAttestationCid == eligibilityAttestationCid)
-  require "Payment request uses the agreement settlement deadline"
-    (purchaseAgreement.settleBefore == settleBefore)
+  validateTokenizedSettlementAgreement
+    now terms agreementCid eligibilityAttestationCid requestedAt settleBefore
 
   attestation <- fetch eligibilityAttestationCid
   validateEligibility now terms attestation
+
+validateTokenizedSettlementAgreement
+  : Time
+  -> SettlementTerms
+  -> ContractId PurchaseAgreement
+  -> ContractId EligibilityAttestation
+  -> Time
+  -> Time
+  -> Update ()
+validateTokenizedSettlementAgreement
+    now terms agreementCid eligibilityAttestationCid requestedAt settleBefore = do
+  require "Settlement request time is not in the future" (requestedAt <= now)
+  require "Tokenized settlement deadline has not passed" (now < settleBefore)
+
+  purchaseAgreement <- fetch agreementCid
+  require "Settlement request references these settlement terms"
+    (purchaseAgreement.terms == terms)
+  require "Settlement request references this eligibility attestation"
+    (purchaseAgreement.eligibilityAttestationCid == eligibilityAttestationCid)
+  require "Settlement request uses the agreement settlement deadline"
+    (purchaseAgreement.settleBefore == settleBefore)

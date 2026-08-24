@@ -1,0 +1,172 @@
+module Settlement.PrivateCreditToken where
+
+import DA.TextMap as TextMap
+
+import Splice.Api.Token.AllocationV1
+import Splice.Api.Token.HoldingV1
+import Splice.Api.Token.MetadataV1
+
+import Settlement.Regulated (require)
+
+template PrivateCreditHolding
+  with
+    custodian : Party
+    issuer : Party
+    owner : Party
+    instrumentId : InstrumentId
+    amount : Decimal
+  where
+    signatory custodian
+    observer issuer, owner
+    ensure
+      instrumentId.admin == custodian
+        && instrumentId.id /= ""
+        && amount > 0.0
+
+    interface instance Holding for PrivateCreditHolding where
+      view = HoldingView with
+        owner
+        instrumentId
+        amount
+        lock = None
+        meta = privateCreditMetadata instrumentId.id
+
+template PrivateCreditLockedHolding
+  with
+    custodian : Party
+    issuer : Party
+    owner : Party
+    instrumentId : InstrumentId
+    amount : Decimal
+    settlement : SettlementInfo
+  where
+    signatory custodian
+    observer issuer, owner, settlement.executor
+    ensure
+      instrumentId.admin == custodian
+        && instrumentId.id /= ""
+        && amount > 0.0
+
+    interface instance Holding for PrivateCreditLockedHolding where
+      view = HoldingView with
+        owner
+        instrumentId
+        amount
+        lock = Some Lock with
+          holders = [custodian]
+          expiresAt = Some settlement.settleBefore
+          expiresAfter = None
+          context = Some settlement.settlementRef.id
+        meta = privateCreditMetadata instrumentId.id
+
+template PrivateCreditAllocation
+  with
+    custodian : Party
+    issuer : Party
+    allocation : AllocationSpecification
+    holdingCid : ContractId PrivateCreditLockedHolding
+  where
+    signatory custodian
+    observer issuer,
+      allocation.transferLeg.sender,
+      allocation.transferLeg.receiver,
+      allocation.settlement.executor
+    ensure
+      allocation.transferLeg.instrumentId.admin == custodian
+        && allocation.transferLeg.instrumentId.id /= ""
+        && allocation.transferLeg.amount > 0.0
+
+    interface instance Allocation for PrivateCreditAllocation where
+      view = AllocationView with
+        allocation
+        holdingCids = [toInterfaceContractId holdingCid]
+        meta = privateCreditMetadata allocation.transferLeg.instrumentId.id
+
+      allocation_executeTransferImpl _ _ = do
+        now <- getTime
+        require "Private-credit allocation has not expired"
+          (now < allocation.settlement.settleBefore)
+        locked <- fetch holdingCid
+        validateLockedHolding allocation locked
+        archive holdingCid
+
+        receiverHoldingCid <- create PrivateCreditHolding with
+          custodian
+          issuer
+          owner = allocation.transferLeg.receiver
+          instrumentId = allocation.transferLeg.instrumentId
+          amount = allocation.transferLeg.amount
+
+        pure Allocation_ExecuteTransferResult with
+          senderHoldingCids = []
+          receiverHoldingCids = [toInterfaceContractId receiverHoldingCid]
+          meta = privateCreditMetadata allocation.transferLeg.instrumentId.id
+
+      allocation_cancelImpl _ _ = do
+        senderHoldingCid <- restoreSenderHolding this
+        pure Allocation_CancelResult with
+          senderHoldingCids = [toInterfaceContractId senderHoldingCid]
+          meta = privateCreditMetadata allocation.transferLeg.instrumentId.id
+
+      allocation_withdrawImpl _ _ = do
+        senderHoldingCid <- restoreSenderHolding this
+        pure Allocation_WithdrawResult with
+          senderHoldingCids = [toInterfaceContractId senderHoldingCid]
+          meta = privateCreditMetadata allocation.transferLeg.instrumentId.id
+
+reservePrimaryIssuance
+  : Party
+  -> Party
+  -> AllocationSpecification
+  -> Update (ContractId Allocation)
+reservePrimaryIssuance custodian issuer allocation = do
+  require "Private-credit sender is the issuer"
+    (allocation.transferLeg.sender == issuer)
+  require "Private-credit instrument is administered by the custodian"
+    (allocation.transferLeg.instrumentId.admin == custodian)
+
+  holdingCid <- create PrivateCreditLockedHolding with
+    custodian
+    issuer
+    owner = issuer
+    instrumentId = allocation.transferLeg.instrumentId
+    amount = allocation.transferLeg.amount
+    settlement = allocation.settlement
+
+  allocationCid <- create PrivateCreditAllocation with ..
+  pure $ toInterfaceContractId allocationCid
+
+restoreSenderHolding
+  : PrivateCreditAllocation
+  -> Update (ContractId PrivateCreditHolding)
+restoreSenderHolding PrivateCreditAllocation{..} = do
+  locked <- fetch holdingCid
+  validateLockedHolding allocation locked
+  archive holdingCid
+  create PrivateCreditHolding with
+    custodian
+    issuer
+    owner = allocation.transferLeg.sender
+    instrumentId = allocation.transferLeg.instrumentId
+    amount = allocation.transferLeg.amount
+
+validateLockedHolding
+  : AllocationSpecification
+  -> PrivateCreditLockedHolding
+  -> Update ()
+validateLockedHolding allocation holding = do
+  require "Locked holding belongs to the allocation sender"
+    (holding.owner == allocation.transferLeg.sender)
+  require "Locked holding uses the allocation instrument"
+    (holding.instrumentId == allocation.transferLeg.instrumentId)
+  require "Locked holding covers the allocated amount"
+    (holding.amount == allocation.transferLeg.amount)
+  require "Locked holding belongs to this settlement"
+    (holding.settlement == allocation.settlement)
+
+privateCreditMetadata : Text -> Metadata
+privateCreditMetadata assetId = Metadata with
+  values = TextMap.fromList
+    [ ("regulated-settlement.example/asset-type", "private-credit")
+    , ("regulated-settlement.example/asset-id", assetId)
+    ]
