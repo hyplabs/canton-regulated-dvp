@@ -33,15 +33,13 @@ validator operation or network onboarding.
 - Token-standard allocations provide a path to atomic multi-asset settlement.
 - Daml contracts give the UI and backend one shared workflow definition.
 
-## Local Official Sources
+## Official Sources
 
-From the repository root, sibling references live under `../resources/`:
+- [Canton Network Quickstart](https://github.com/digital-asset/cn-quickstart)
+- [Splice and Token Standard sources](https://github.com/canton-network/splice)
+- [Canton Improvement Proposals](https://github.com/canton-foundation/cips)
+- [Canton Development Fund](https://github.com/canton-foundation/canton-dev-fund)
+- [Canton Foundation onboarding guide](https://guide.canton.foundation/)
 
-- `../resources/cn-quickstart/`
-- `../resources/splice/docs/src/app_dev/token_standard/`
-- `../resources/cips/cip-0056/cip-0056.md`
-- `../resources/canton-dev-fund/`
-- `../resources/canton-docs/llms.txt`
-
-These sources retain their own Git histories and are intentionally outside the
-POC repository.
+These sources retain their own Git histories and are intentionally referenced
+rather than copied into this repository.

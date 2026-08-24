@@ -74,11 +74,12 @@ dpm test -p WrongParty
 
 ## Quickstart LocalNet
 
-The sibling Quickstart checkout is configured for LocalNet, shared-secret auth,
-test mode, and no observability. Start it from its repository:
+Clone the official Quickstart beside this repository, configure it for LocalNet,
+shared-secret auth, test mode, and no observability, then start it:
 
 ```bash
-cd ../resources/cn-quickstart/quickstart
+git clone https://github.com/digital-asset/cn-quickstart.git ../cn-quickstart
+cd ../cn-quickstart/quickstart
 env JAVA_HOME="$HOME/.local/share/canton-jdk-21/usr/lib/jvm/java-21-openjdk-amd64" \
   PATH="$HOME/.dpm/bin:$JAVA_HOME/bin:$PATH" \
   make start
@@ -105,8 +106,8 @@ Presentation modes can be combined:
 `--interactive` pauses at wallet discovery after the private-credit leg is
 already reserved. `--show-negative` submits and verifies a real wrong-party
 rejection before successful completion, including continued activeness of both
-allocations. `--verbose` adds contract IDs and detailed errors. See
-`docs/demo-guide.md` for the timed walkthrough.
+allocations. `--verbose` adds contract IDs and detailed errors. See the
+[presenter guide](demo-guide.md) for the timed walkthrough.
 
 Useful Quickstart endpoints are:
 
@@ -136,4 +137,4 @@ If a wallet request times out, check `docker ps` and wait until both `canton` an
 
 The Token Standard API DARs are checked into `daml/vendor` so builds do not
 depend on the sibling research repositories. Their origin, license, commit, and
-checksums are recorded in `THIRD_PARTY_NOTICES.md`.
+checksums are recorded in [Third-Party Notices](../../THIRD_PARTY_NOTICES.md).

@@ -329,8 +329,9 @@ payment-only LocalNet runner proved real wallet and registry execution; the
 updated two-leg runner still needs its post-change Quickstart rehearsal.
 
 The official comparison implementation is
-`../resources/cn-quickstart/quickstart/daml/licensing`, and the fuller DvP
-example is in the sibling Quickstart token-standard test sources.
+the official
+[`cn-quickstart/daml/licensing`](https://github.com/digital-asset/cn-quickstart/tree/main/quickstart/daml/licensing)
+example, with fuller DvP examples in the upstream Token Standard test sources.
 
 ## 17. Small Language Notes From This Slice
 

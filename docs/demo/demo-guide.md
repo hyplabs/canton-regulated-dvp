@@ -49,9 +49,11 @@ npm run test:app
 npm run test:ui
 ```
 
-Start Quickstart from `../resources/cn-quickstart/quickstart`:
+Start an official Quickstart checkout located beside this repository:
 
 ```bash
+git clone https://github.com/digital-asset/cn-quickstart.git ../cn-quickstart
+cd ../cn-quickstart/quickstart
 env JAVA_HOME="$HOME/.local/share/canton-jdk-21/usr/lib/jvm/java-21-openjdk-amd64" \
   PATH="$HOME/.dpm/bin:$JAVA_HOME/bin:$PATH" \
   make start
@@ -84,9 +86,9 @@ Open:
 
 Keep these source files ready:
 
-- [TokenizedPayment.daml](../daml/tokenized-model/daml/Settlement/TokenizedPayment.daml)
-- [PrivateCreditToken.daml](../daml/tokenized-model/daml/Settlement/PrivateCreditToken.daml)
-- [TokenizedPaymentTest.daml](../daml/tokenized-tests/daml/Settlement/TokenizedPaymentTest.daml)
+- [TokenizedPayment.daml](../../daml/tokenized-model/daml/Settlement/TokenizedPayment.daml)
+- [PrivateCreditToken.daml](../../daml/tokenized-model/daml/Settlement/PrivateCreditToken.daml)
+- [TokenizedPaymentTest.daml](../../daml/tokenized-tests/daml/Settlement/TokenizedPaymentTest.daml)
 
 ## Browser Walkthrough
 

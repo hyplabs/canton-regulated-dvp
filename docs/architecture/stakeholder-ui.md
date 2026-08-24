@@ -65,7 +65,8 @@ design.
 
 ## Run And Test
 
-Build the DARs and start Quickstart as described in `docs/runbook.md`, then:
+Build the DARs and start Quickstart as described in the
+[local runbook](../demo/runbook.md), then:
 
 ```bash
 npm install

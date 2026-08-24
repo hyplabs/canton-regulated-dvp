@@ -1,4 +1,4 @@
-name: POC
+name: CI
 
 on:
   push:
@@ -22,6 +22,12 @@ jobs:
 
       - name: Test application adapter
         run: npm run test:app
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Test stakeholder UI
+        run: npm run test:ui
 
       - name: Set up JDK 21
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0

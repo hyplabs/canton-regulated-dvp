@@ -16,7 +16,7 @@ shell.
 
 ## Runtime Path
 
-1. Start `../resources/cn-quickstart/quickstart` with `make start`.
+1. Start a sibling `cn-quickstart/quickstart` checkout with `make start`.
 2. Run `./scripts/test.sh` to build and test all four Daml packages.
 3. Run `./scripts/localnet-demo.sh --show-negative`.
 

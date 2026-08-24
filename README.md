@@ -1,4 +1,6 @@
-# Canton Regulated Settlement POC
+# Canton Regulated DvP
+
+[![CI](https://github.com/sammyshakes/canton-regulated-dvp/actions/workflows/ci.yml/badge.svg)](https://github.com/sammyshakes/canton-regulated-dvp/actions/workflows/ci.yml)
 
 A tested Daml proof of concept for private, compliance-gated delivery-versus-
 payment (DvP) on Canton.
@@ -93,18 +95,20 @@ staged approval for the jointly controlled completion choice.
 - `daml/tokenized-tests/` - Token Standard mocks and DvP tests.
 - `daml/vendor/` - pinned Token Standard API DARs with checksums.
 - `app/` - local backend adapter, stakeholder UI, Node tests, and Playwright tests.
-- `docs/` - architecture, Daml learning guide, demo guide, and runbook.
+- `docs/` - indexed architecture, learning, demo, research, and project notes.
 - `scripts/test.sh` - builds all four Daml packages and runs both script suites.
 - `scripts/localnet-demo.sh` - uploads production DARs and runs the full DvP flow
   against Quickstart LocalNet.
-- `.github/workflows/daml.yml` - reproducible JDK, DPM, build, and test CI.
+- `.github/workflows/ci.yml` - reproducible Daml, Node, and browser test CI.
+- `LICENSE` and `THIRD_PARTY_NOTICES.md` - project and vendored API licensing.
 
-Official source snapshots are kept outside this repository in the sibling
-`../resources/` directory.
+Quickstart, Canton Improvement Proposals, and other upstream references remain
+in their own repositories and are not copied into this project.
 
 ## Run It
 
-Prerequisites are DPM with Daml SDK `3.5.2` and JDK 21.
+Prerequisites are DPM with Daml SDK `3.5.2`, JDK 21, Node.js 20 or newer, and
+Docker for the optional Quickstart runtime.
 
 ```bash
 ./scripts/test.sh
@@ -142,9 +146,10 @@ npm run test:app
 npm run test:ui
 ```
 
-Start with `docs/demo-guide.md` for the presentation walkthrough,
-`docs/runbook.md` for setup and troubleshooting, and
-`docs/daml-learning-log.md` to learn the language through this implementation.
+Start with the [documentation index](docs/README.md), the
+[presentation walkthrough](docs/demo/demo-guide.md), the
+[local runbook](docs/demo/runbook.md), or the
+[Daml learning guide](docs/learning/daml-learning-guide.md).
 
 ## Current Status
 
@@ -158,3 +163,9 @@ Start with `docs/demo-guide.md` for the presentation walkthrough,
   in this shell; no new real-runtime result is claimed yet.
 - DevNet identity, deployment, and independently hosted multi-party completion
   remain outside this local proof of concept.
+
+## License
+
+This project is licensed under Apache-2.0. The vendored Canton Token Standard
+API DARs retain their upstream copyright and license; see
+[Third-Party Notices](THIRD_PARTY_NOTICES.md).

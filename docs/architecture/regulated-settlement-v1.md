@@ -10,7 +10,7 @@ delivery evidence but does not claim to transfer token-standard assets yet.
 
 This document intentionally describes the retained V1 learning model. The
 presented V3 path now uses the two-allocation integration described in
-`tokenized-payment-architecture.md`.
+[Tokenized DvP Architecture](tokenized-dvp.md).
 
 ## Parties
 
@@ -82,4 +82,4 @@ ledger time to be strictly before `settleBefore`.
 for learning staged authority and as a fallback workflow, but they are not the
 presented DvP implementation. V2 replaces both references with exact Token
 Standard allocation legs and executes them atomically; see
-`tokenized-payment-architecture.md`.
+[Tokenized DvP Architecture](tokenized-dvp.md).
