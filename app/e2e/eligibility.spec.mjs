@@ -68,9 +68,32 @@ const paymentBase = {
   agreementCid: purchaseAgreement.contractId,
   eligibilityAttestationCid: attestation.contractId,
   paymentInstrumentId: { admin: "DSO::1220dso", id: "Amulet" },
+  assetInstrumentId: { admin: health.roles.provider, id: offer.terms.assetId },
   requestedAt: "2026-08-21T20:00:00Z",
   allocateBefore: "2026-08-21T21:00:00Z",
   settleBefore: offer.settleBefore,
+};
+
+const deliveryApproval = {
+  ...paymentBase,
+  kind: "deliveryApproval",
+  contractId: "00deliveryapproval1234567890abcdef",
+  status: "active",
+};
+
+const deliveryAllocation = {
+  kind: "deliveryAllocation",
+  contractId: "00deliveryallocation1234567890abc",
+  templateId: "pkg:Settlement.PrivateCreditToken:PrivateCreditAllocation",
+  status: "active",
+  requestId: paymentBase.requestId,
+  settlementRefCid: purchaseAgreement.contractId,
+  amount: "1000.0",
+  instrumentId: offer.terms.assetId,
+  sender: health.roles.provider,
+  receiver: health.roles.investor,
+  settleBefore: paymentBase.settleBefore,
+  holdingCid: "00lockedholding1234567890abcdef123",
 };
 
 const paymentProposal = {
@@ -82,6 +105,7 @@ const paymentProposal = {
 
 const approvedPayment = {
   ...paymentBase,
+  deliveryAllocationCid: deliveryAllocation.contractId,
   kind: "approvedPayment",
   contractId: "00approved1234567890abcdef1234567",
   status: "active",
@@ -89,6 +113,7 @@ const approvedPayment = {
 
 const paymentRequest = {
   ...paymentBase,
+  deliveryAllocationCid: deliveryAllocation.contractId,
   kind: "paymentRequest",
   contractId: "00request1234567890abcdef12345678",
   status: "active",
@@ -109,15 +134,30 @@ const allocation = {
   settleBefore: paymentRequest.settleBefore,
 };
 
-const paymentPrepared = {
-  kind: "paymentPrepared",
-  contractId: "00prepared1234567890abcdef12345678",
-  templateId: "pkg:Settlement.Regulated:PaymentPrepared",
+const assetHolding = {
+  kind: "assetHolding",
+  contractId: "00assetholding1234567890abcdef1234",
+  templateId: "pkg:Settlement.PrivateCreditToken:PrivateCreditHolding",
+  status: "active",
+  custodian: health.roles.provider,
+  issuer: health.roles.provider,
+  owner: health.roles.investor,
+  instrumentId: offer.terms.assetId,
+  amount: "1000.0",
+};
+
+const settlementReceipt = {
+  kind: "settlementReceipt",
+  contractId: "00receipt1234567890abcdef12345678",
+  templateId: "pkg:Settlement.TokenizedPayment:TokenizedSettlementReceipt",
   status: "active",
   terms: offer.terms,
   eligibilityAttestationCid: attestation.contractId,
-  settleBefore: paymentRequest.settleBefore,
-  paymentRef: paymentRequest.requestId,
+  requestId: paymentRequest.requestId,
+  paymentAllocationCid: allocation.contractId,
+  deliveryAllocationCid: deliveryAllocation.contractId,
+  assetHoldingCids: [assetHolding.contractId],
+  settledAt: "2026-08-21T20:30:00Z",
   balanceEvidence: {
     amount: "10.0",
     instrumentId: "Amulet",
@@ -133,30 +173,6 @@ const paymentPrepared = {
     issuerReceived: "10",
     verified: true,
   },
-};
-
-const readyToSettle = {
-  kind: "readyToSettle",
-  contractId: "00ready1234567890abcdef1234567890",
-  templateId: "pkg:Settlement.Regulated:ReadyToSettle",
-  status: "active",
-  terms: offer.terms,
-  eligibilityAttestationCid: attestation.contractId,
-  settleBefore: paymentRequest.settleBefore,
-  paymentRef: paymentRequest.requestId,
-  deliveryRef: "CUSTODY/PC-2026-001",
-};
-
-const settlementReceipt = {
-  kind: "settlementReceipt",
-  contractId: "00receipt1234567890abcdef12345678",
-  templateId: "pkg:Settlement.Regulated:SettlementReceipt",
-  status: "active",
-  terms: offer.terms,
-  eligibilityAttestationCid: attestation.contractId,
-  paymentRef: paymentRequest.requestId,
-  deliveryRef: readyToSettle.deliveryRef,
-  settledAt: "2026-08-21T20:30:00Z",
 };
 
 async function mockApi(page) {
@@ -260,7 +276,17 @@ test("roles complete the regulated settlement lifecycle", async ({ page }) => {
     await route.fulfill({
       json: {
         paymentProposal: { ...paymentProposal, status: "archived" },
+        deliveryApproval,
+      },
+    });
+  });
+  await page.route("**/api/delivery-approvals/*/approve", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    await route.fulfill({
+      json: {
+        deliveryApproval: { ...deliveryApproval, status: "archived" },
         approvedPayment,
+        deliveryAllocation,
       },
     });
   });
@@ -285,26 +311,8 @@ test("roles complete the regulated settlement lifecycle", async ({ page }) => {
         paymentRequest: { ...paymentRequest, status: "archived" },
         purchaseAgreement: { ...purchaseAgreement, status: "archived" },
         allocation: { ...allocation, status: "archived" },
-        paymentPrepared,
-      },
-    });
-  });
-  await page.route("**/api/payment-prepared/*/confirm-delivery", async (route) => {
-    expect(route.request().postDataJSON()).toEqual({
-      deliveryRef: "CUSTODY/PC-2026-001",
-    });
-    await route.fulfill({
-      json: {
-        paymentPrepared: { ...paymentPrepared, status: "archived" },
-        readyToSettle,
-      },
-    });
-  });
-  await page.route("**/api/ready-to-settle/*/finalize", async (route) => {
-    expect(route.request().method()).toBe("POST");
-    await route.fulfill({
-      json: {
-        readyToSettle: { ...readyToSettle, status: "archived" },
+        deliveryAllocation: { ...deliveryAllocation, status: "archived" },
+        assetHolding,
         settlementReceipt,
       },
     });
@@ -344,7 +352,15 @@ test("roles complete the regulated settlement lifecycle", async ({ page }) => {
 
   await page.getByRole("button", { name: "Verifier" }).click();
   await page.getByRole("button", { name: "Approve payment request" }).click();
-  await expect(page.getByText("Payment approved", { exact: true })).toBeVisible();
+  await expect(page.locator("#scenario-status")).toContainText("Custodian approval pending");
+
+  await page.getByRole("button", { name: "Custodian" }).click();
+  await expect(page.getByRole("button", { name: "Reserve private-credit units" })).toBeEnabled();
+  await page.getByRole("button", { name: "Reserve private-credit units" }).click();
+  await expect(page.getByText("Asset leg reserved", { exact: true })).toBeVisible();
+  await expect(page.getByText("Active private-credit allocation contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("1000 PC-NOTE-2026-A");
+  await expect(page.locator("#contract-fields")).toContainText("delivery");
 
   await page.getByRole("button", { name: "Investor" }).click();
   await page.getByRole("button", { name: "Accept payment request" }).click();
@@ -354,46 +370,35 @@ test("roles complete the regulated settlement lifecycle", async ({ page }) => {
 
   await expect(page.getByRole("button", { name: "Allocate Canton Coin" })).toBeEnabled();
   await page.getByRole("button", { name: "Allocate Canton Coin" }).click();
-  await expect(page.getByText("Coin allocated")).toBeVisible();
+  await expect(page.locator("#scenario-status")).toContainText("Both legs reserved");
   await expect(page.getByText("Active Canton Coin allocation contract", { exact: true })).toBeVisible();
   await expect(page.locator("#contract-fields")).toContainText("10 Amulet");
   await expect(page.locator("#contract-fields")).toContainText("payment");
 
   await page.getByRole("button", { name: "Issuer" }).click();
-  await expect(page.getByRole("button", { name: "Execute atomic payment" })).toBeEnabled();
-  await page.getByRole("button", { name: "Execute atomic payment" }).click();
-  await expect(page.locator("#scenario-status")).toContainText("Payment prepared");
-  await expect(page.getByText("4 of 6 complete")).toBeVisible();
-  await expect(page.getByText("Active prepared payment contract", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Execute atomic DvP" })).toBeEnabled();
+  await page.getByRole("button", { name: "Execute atomic DvP" }).click();
+  await expect(page.locator("#scenario-status")).toContainText("Atomic DvP complete");
+  await expect(page.getByText("6 of 6 complete")).toBeVisible();
+  await expect(page.getByText("Active DvP receipt contract", { exact: true })).toBeVisible();
   await expect(page.locator("#contract-fields")).toContainText("Exact transfer confirmed");
   await expect(page.locator("#contract-fields")).toContainText("50 -> 60 Amulet");
+  await expect(page.locator("#contract-fields")).toContainText("Auditor");
 
-  await page.getByRole("tab", { name: "Allocation" }).click();
+  await page.getByRole("tab", { name: "Cash" }).click();
   await expect(page.getByText("Archived Canton Coin allocation contract", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Asset" }).click();
+  await expect(page.getByText("Archived private-credit allocation contract", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Holding" }).click();
+  await expect(page.getByText("Active private-credit holding contract", { exact: true })).toBeVisible();
+  await expect(page.locator("#contract-fields")).toContainText("1000 units");
+  await expect(page.locator("#contract-fields")).toContainText("Owner");
+  await expect(page.locator("#contract-fields")).toContainText("app_user_quickstart");
   await page.getByRole("tab", { name: "Request" }).click();
   await expect(page.getByText("Archived payment request contract", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Custodian" }).click();
-  await expect(page.getByLabel("Delivery reference")).toHaveValue("CUSTODY/PC-2026-001");
-  await page.getByRole("button", { name: "Confirm delivery" }).click();
-  await expect(page.locator("#scenario-status")).toContainText("Delivery confirmed");
-  await expect(page.getByText("5 of 6 complete")).toBeVisible();
-  await expect(page.getByText("Active settlement-ready contract", { exact: true })).toBeVisible();
-  await expect(page.locator("#contract-fields")).toContainText("CUSTODY/PC-2026-001");
-  await page.getByRole("tab", { name: "Prepared" }).click();
-  await expect(page.getByText("Archived prepared payment contract", { exact: true })).toBeVisible();
-
-  await page.getByRole("button", { name: "Issuer" }).click();
-  await expect(page.getByRole("button", { name: "Finalize settlement" })).toBeEnabled();
-  await page.getByRole("button", { name: "Finalize settlement" }).click();
-  await expect(page.locator("#scenario-status")).toContainText("Settlement complete");
-  await expect(page.getByText("6 of 6 complete")).toBeVisible();
-  await expect(page.getByText("Active settlement receipt contract", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Receipt" }).click();
   await expect(page.locator("#contract-fields")).toContainText("Aug 21, 2026");
-  await expect(page.locator("#contract-fields")).toContainText("Auditor");
-
-  await page.getByRole("tab", { name: "Ready" }).click();
-  await expect(page.getByText("Archived settlement-ready contract", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Auditor" }).click();
   await expect(page.getByRole("heading", { name: "Settlement complete" })).toBeVisible();
 });

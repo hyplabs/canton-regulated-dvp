@@ -89,11 +89,11 @@
             </li>
             <li class="timeline-step" data-stage="payment">
               <span class="step-index"><i data-lucide="coins"></i></span>
-              <div><strong>Payment</strong><span id="payment-step-label">Locked</span></div>
+              <div><strong>Cash</strong><span id="payment-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="delivery">
               <span class="step-index"><i data-lucide="package-check"></i></span>
-              <div><strong>Delivery</strong><span id="delivery-step-label">Locked</span></div>
+              <div><strong>Asset</strong><span id="delivery-step-label">Locked</span></div>
             </li>
             <li class="timeline-step" data-stage="receipt">
               <span class="step-index"><i data-lucide="receipt-text"></i></span>
@@ -206,33 +206,6 @@
             </button>
           </div>
 
-          <div id="delivery-confirmation-panel" class="action-confirmation" hidden>
-            <dl>
-              <div><dt>Asset</dt><dd id="delivery-action-asset"></dd></div>
-              <div><dt>Quantity</dt><dd id="delivery-action-quantity"></dd></div>
-              <div><dt>Paid</dt><dd id="delivery-action-payment"></dd></div>
-            </dl>
-            <label class="action-input">
-              <span>Delivery reference</span>
-              <input id="delivery-reference" type="text" value="CUSTODY/PC-2026-001" maxlength="80" />
-            </label>
-            <button id="confirm-delivery-button" class="primary-button" type="button" disabled>
-              <i data-lucide="package-check"></i><span>Confirm delivery</span>
-            </button>
-          </div>
-
-          <div id="finalization-panel" class="action-confirmation" hidden>
-            <dl>
-              <div><dt>Asset</dt><dd id="finalize-action-asset"></dd></div>
-              <div><dt>Payment ref</dt><dd id="finalize-action-payment-ref"></dd></div>
-              <div><dt>Delivery ref</dt><dd id="finalize-action-delivery-ref"></dd></div>
-              <div><dt>Settle before</dt><dd id="finalize-action-deadline"></dd></div>
-            </dl>
-            <button id="finalize-settlement-button" class="primary-button" type="button" disabled>
-              <i data-lucide="receipt-text"></i><span>Finalize settlement</span>
-            </button>
-          </div>
-
           <div id="role-empty-state" class="role-empty-state" hidden>
             <i data-lucide="lock-keyhole"></i>
             <div><strong>No available action</strong><span id="empty-state-copy"></span></div>
@@ -258,11 +231,12 @@
           <button type="button" role="tab" data-contract-kind="compliance" disabled>Compliance</button>
           <button type="button" role="tab" data-contract-kind="agreement" disabled>Agreement</button>
           <button type="button" role="tab" data-contract-kind="paymentProposal" disabled>Proposal</button>
+          <button type="button" role="tab" data-contract-kind="deliveryApproval" disabled>Custody</button>
           <button type="button" role="tab" data-contract-kind="approvedPayment" disabled>Approval</button>
           <button type="button" role="tab" data-contract-kind="paymentRequest" disabled>Request</button>
-          <button type="button" role="tab" data-contract-kind="allocation" disabled>Allocation</button>
-          <button type="button" role="tab" data-contract-kind="paymentPrepared" disabled>Prepared</button>
-          <button type="button" role="tab" data-contract-kind="readyToSettle" disabled>Ready</button>
+          <button type="button" role="tab" data-contract-kind="allocation" disabled>Cash</button>
+          <button type="button" role="tab" data-contract-kind="deliveryAllocation" disabled>Asset</button>
+          <button type="button" role="tab" data-contract-kind="assetHolding" disabled>Holding</button>
           <button type="button" role="tab" data-contract-kind="settlementReceipt" disabled>Receipt</button>
         </div>
 

@@ -194,6 +194,8 @@ terms=$(jq -nc \
     assetClass:"PRIVATE-CREDIT",units:$units,paymentAmount:$amount,
     paymentInstrumentId:"Amulet"}')
 instrument=$(jq -nc --arg admin "$dso_party" '{admin:$admin,id:"Amulet"}')
+asset_instrument=$(jq -nc --arg admin "$provider_party" \
+  '{admin:$admin,id:"PC-NOTE-LOCALNET"}')
 
 args=$(jq -nc \
   --arg verifier "$provider_party" \
@@ -248,11 +250,13 @@ args=$(jq -nc \
   --arg agreement "$agreement_cid" \
   --arg attestation "$attestation_cid" \
   --argjson instrument "$instrument" \
+  --argjson asset_instrument "$asset_instrument" \
   --arg requested "$requested_at" \
   --arg allocate "$allocate_before" \
   --arg settle "$settle_before" \
   '{requestId:$request,terms:$terms,agreementCid:$agreement,
     eligibilityAttestationCid:$attestation,paymentInstrumentId:$instrument,
+    assetInstrumentId:$asset_instrument,
     requestedAt:$requested,allocateBefore:$allocate,settleBefore:$settle}')
 command=$(jq -nc --arg template "$v2:TokenizedPaymentProposal" \
   --argjson args "$args" \
@@ -268,8 +272,21 @@ command=$(jq -nc --arg template "$v2:TokenizedPaymentProposal" \
     choice:"ApproveTokenizedPayment",choiceArgument:{}}}')
 response=$(submit_command "$provider_ledger" "$provider_token" "$provider_party" \
   "$run_id-approve-payment" "$command")
+delivery_pending_cid=$(created_cid "$response" \
+  ':Settlement.TokenizedPayment:DeliveryApprovalPending')
+
+command=$(jq -nc --arg template "$v2:DeliveryApprovalPending" \
+  --arg cid "$delivery_pending_cid" \
+  '{ExerciseCommand:{templateId:$template,contractId:$cid,
+    choice:"ApprovePrivateCreditDelivery",choiceArgument:{}}}')
+response=$(submit_command "$provider_ledger" "$provider_token" "$provider_party" \
+  "$run_id-approve-delivery" "$command")
 approved_cid=$(created_cid "$response" \
   ':Settlement.TokenizedPayment:ApprovedTokenizedPayment')
+delivery_allocation_cid=$(created_cid "$response" \
+  ':Settlement.PrivateCreditToken:PrivateCreditAllocation')
+echo "  5/10 Custodian reserved the tokenized private-credit units"
+detail "Private-credit Allocation: $delivery_allocation_cid"
 
 command=$(jq -nc --arg template "$v2:ApprovedTokenizedPayment" \
   --arg cid "$approved_cid" \
@@ -279,7 +296,7 @@ response=$(submit_command "$user_ledger" "$user_token" "$user_party" \
   "$run_id-accept-payment" "$command")
 request_cid=$(created_cid "$response" \
   ':Settlement.TokenizedPayment:TokenizedPaymentRequest')
-echo "  5/10 Payment request authorized by all parties"
+echo "  6/10 Two-leg DvP request authorized by all parties"
 detail "TokenizedPaymentRequest: $request_cid"
 
 sleep 1
@@ -292,7 +309,7 @@ if [[ -z "$request" ]]; then
   echo "Wallet did not discover allocation request $request_cid." >&2
   exit 1
 fi
-echo "  6/10 Standard wallet discovered our custom request"
+echo "  7/10 Standard wallet discovered the Canton Coin leg"
 
 if [[ "$demo_interactive" == true ]]; then
   cat <<'PAUSE'
@@ -337,19 +354,20 @@ if [[ -z "$allocation_cid" ]]; then
   echo "$allocation_response" >&2
   exit 1
 fi
-echo "  7/10 Investor wallet allocated 10 Canton Coin"
+echo "  8/10 Investor wallet allocated $payment_amount Canton Coin"
 detail "Allocation: $allocation_cid"
 
 context=$(http_json POST \
   "$registry/registry/allocations/v1/$allocation_cid/choice-contexts/execute-transfer" \
   '' '{"meta":{}}')
 choice_args=$(jq -nc --arg allocation "$allocation_cid" --argjson context "$context" \
-  '{allocationCid:$allocation,
-    extraArgs:{context:$context.choiceContextData,meta:{values:{}}}}')
+  '{paymentAllocationCid:$allocation,
+    paymentExtraArgs:{context:$context.choiceContextData,meta:{values:{}}},
+    deliveryExtraArgs:{context:{values:{}},meta:{values:{}}}}')
 command=$(jq -nc --arg template "$v2:TokenizedPaymentRequest" \
   --arg cid "$request_cid" --argjson args "$choice_args" \
   '{ExerciseCommand:{templateId:$template,contractId:$cid,
-    choice:"CompleteTokenizedPayment",choiceArgument:$args}}')
+    choice:"CompleteTokenizedDvP",choiceArgument:$args}}')
 disclosures=$(jq -c \
   '[.disclosedContracts[] | {templateId,contractId,createdEventBlob,synchronizerId}]' \
   <<<"$context")
@@ -364,38 +382,26 @@ if [[ "$demo_show_negative" == true ]]; then
     "$agreement_cid" 'Purchase agreement'
   assert_contract_active "$user_ledger" "$user_token" "$user_party" \
     "$allocation_cid" 'Canton Coin allocation'
-  echo "       Rejection was atomic; request, agreement, and allocation remain active"
+  assert_contract_active "$provider_ledger" "$provider_token" "$provider_party" \
+    "$delivery_allocation_cid" 'Private-credit allocation'
+  echo "       Rejection was atomic; request, agreement, and both allocations remain active"
 fi
 
 response=$(submit_command "$provider_ledger" "$provider_token" "$provider_party" \
-  "$run_id-complete-payment" "$command" "$disclosures")
-payment_cid=$(created_cid "$response" ':Settlement.Regulated:PaymentPrepared')
-echo "  8/10 Coin transferred atomically with payment preparation"
-detail "PaymentPrepared: $payment_cid"
+  "$run_id-complete-dvp" "$command" "$disclosures")
+asset_holding_cid=$(created_cid "$response" \
+  ':Settlement.PrivateCreditToken:PrivateCreditHolding')
+echo "  9/10 Canton Coin and private-credit units exchanged atomically"
+detail "Investor PrivateCreditHolding: $asset_holding_cid"
 
-choice_args=$(jq -nc --arg ref "$run_id-delivery" '{deliveryRef:$ref}')
-command=$(jq -nc --arg template "$v1:PaymentPrepared" --arg cid "$payment_cid" \
-  --argjson args "$choice_args" \
-  '{ExerciseCommand:{templateId:$template,contractId:$cid,
-    choice:"ConfirmDelivery",choiceArgument:$args}}')
-response=$(submit_command "$provider_ledger" "$provider_token" "$provider_party" \
-  "$run_id-confirm-delivery" "$command")
-ready_cid=$(created_cid "$response" ':Settlement.Regulated:ReadyToSettle')
-echo "  9/10 Custodian confirmed delivery evidence"
-detail "ReadyToSettle: $ready_cid"
-
-command=$(jq -nc --arg template "$v1:ReadyToSettle" --arg cid "$ready_cid" \
-  '{ExerciseCommand:{templateId:$template,contractId:$cid,
-    choice:"FinalizeSettlement",choiceArgument:{}}}')
-response=$(submit_command "$provider_ledger" "$provider_token" "$provider_party" \
-  "$run_id-finalize" "$command")
-receipt_cid=$(created_cid "$response" ':Settlement.Regulated:SettlementReceipt')
+receipt_cid=$(created_cid "$response" \
+  ':Settlement.TokenizedPayment:TokenizedSettlementReceipt')
 settled_at=$(jq -r \
   '.transaction.events[] | .CreatedEvent? | select(. != null) |
-    select(.templateId | endswith(":Settlement.Regulated:SettlementReceipt")) |
+    select(.templateId | endswith(":Settlement.TokenizedPayment:TokenizedSettlementReceipt")) |
     .createArgument.settledAt' <<<"$response")
-echo " 10/10 Auditor-visible settlement receipt created"
-detail "SettlementReceipt: $receipt_cid"
+echo " 10/10 Auditor-visible DvP receipt created"
+detail "TokenizedSettlementReceipt: $receipt_cid"
 
 sleep 1
 user_balance_after=$(balance "$user_validator" "$user_wallet_token")
@@ -417,13 +423,14 @@ fi
 
 cat <<RESULT
 
-Settlement complete
+Atomic DvP settlement complete
   Private-credit units:  $asset_units
   Canton Coin payment:   $payment_amount Amulet
   Investor balance:      $user_balance_before -> $user_balance_after Amulet
   Provider balance:      $provider_balance_before -> $provider_balance_after Amulet
   Settled at:            $settled_at
-  Request and allocation: consumed
+  Investor asset holding: $asset_holding_cid
+  Request and allocations: consumed
 RESULT
 
 if [[ "$demo_verbose" == true ]]; then
@@ -431,7 +438,8 @@ if [[ "$demo_verbose" == true ]]; then
   Run ID:                $run_id
   Investor party:        $user_party
   Provider party:        $provider_party
-  Allocation CID:        $allocation_cid
-  Settlement receipt:    $receipt_cid
+  Coin allocation CID:   $allocation_cid
+  Asset allocation CID:  $delivery_allocation_cid
+  DvP receipt:           $receipt_cid
 DETAILS
 fi

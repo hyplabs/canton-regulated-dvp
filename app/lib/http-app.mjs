@@ -182,6 +182,32 @@ export function createRequestHandler({ cantonClient }) {
         return;
       }
 
+      const approveDeliveryMatch = url.pathname.match(
+        /^\/api\/delivery-approvals\/([^/]+)\/approve$/,
+      );
+      if (request.method === "POST" && approveDeliveryMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.approvePrivateCreditDelivery(
+            decodeURIComponent(approveDeliveryMatch[1]),
+          ),
+        );
+        return;
+      }
+
+      const deliveryApprovalMatch = url.pathname.match(/^\/api\/delivery-approvals\/([^/]+)$/);
+      if (request.method === "GET" && deliveryApprovalMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getDeliveryApprovalPending(
+            decodeURIComponent(deliveryApprovalMatch[1]),
+          ),
+        );
+        return;
+      }
+
       const acceptPaymentMatch = url.pathname.match(
         /^\/api\/approved-payments\/([^/]+)\/accept$/,
       );
@@ -253,6 +279,30 @@ export function createRequestHandler({ cantonClient }) {
           response,
           200,
           await cantonClient.getCantonCoinAllocation(decodeURIComponent(allocationMatch[1])),
+        );
+        return;
+      }
+
+      const deliveryAllocationMatch = url.pathname.match(
+        /^\/api\/delivery-allocations\/([^/]+)$/,
+      );
+      if (request.method === "GET" && deliveryAllocationMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getPrivateCreditAllocation(
+            decodeURIComponent(deliveryAllocationMatch[1]),
+          ),
+        );
+        return;
+      }
+
+      const assetHoldingMatch = url.pathname.match(/^\/api\/asset-holdings\/([^/]+)$/);
+      if (request.method === "GET" && assetHoldingMatch) {
+        sendJson(
+          response,
+          200,
+          await cantonClient.getPrivateCreditHolding(decodeURIComponent(assetHoldingMatch[1])),
         );
         return;
       }

@@ -567,6 +567,10 @@ export class CantonClient {
       agreementCid: agreementContractId,
       eligibilityAttestationCid: agreement.eligibilityAttestationCid,
       paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+      assetInstrumentId: {
+        admin: agreement.terms.custodian,
+        id: agreement.terms.assetId,
+      },
       requestedAt: new Date(now).toISOString(),
       allocateBefore: new Date(allocateBefore).toISOString(),
       settleBefore: agreement.settleBefore,
@@ -628,13 +632,70 @@ export class CantonClient {
     });
     const created = extractCreatedEvent(
       transaction,
+      ":Settlement.TokenizedPayment:DeliveryApprovalPending",
+    );
+    const [archivedProposal, deliveryApproval] = await Promise.all([
+      this.getTokenizedPaymentProposal(proposalContractId),
+      this.getDeliveryApprovalPending(created.contractId),
+    ]);
+    return { paymentProposal: archivedProposal, deliveryApproval };
+  }
+
+  async getDeliveryApprovalPending(contractId) {
+    return this.getPaymentAuthorizationContract(
+      contractId,
+      "deliveryApproval",
+      "DeliveryApprovalPending",
+      "private-credit delivery approval",
+    );
+  }
+
+  async approvePrivateCreditDelivery(deliveryApprovalContractId) {
+    validateContractId(deliveryApprovalContractId);
+    const [context, deliveryApproval] = await Promise.all([
+      this.getContext(),
+      this.getDeliveryApprovalPending(deliveryApprovalContractId),
+    ]);
+    if (deliveryApproval.status !== "active") {
+      throw new CantonApiError("Private-credit delivery approval is not active.", {
+        status: 409,
+        code: "DELIVERY_APPROVAL_INACTIVE",
+      });
+    }
+
+    const transaction = await this.submitCommand({
+      command: {
+        ExerciseCommand: {
+          templateId: tokenizedTemplateId("DeliveryApprovalPending"),
+          contractId: deliveryApprovalContractId,
+          choice: "ApprovePrivateCreditDelivery",
+          choiceArgument: {},
+        },
+      },
+      commandName: "ui-approve-private-credit-delivery",
+      actor: context.providerParty,
+      token: context.providerToken,
+      ledgerUrl: this.providerLedgerUrl,
+    });
+    const approvedCreated = extractCreatedEvent(
+      transaction,
       ":Settlement.TokenizedPayment:ApprovedTokenizedPayment",
     );
-    const [archivedProposal, approvedPayment] = await Promise.all([
-      this.getTokenizedPaymentProposal(proposalContractId),
-      this.getApprovedTokenizedPayment(created.contractId),
-    ]);
-    return { paymentProposal: archivedProposal, approvedPayment };
+    const allocationCreated = extractCreatedEvent(
+      transaction,
+      ":Settlement.PrivateCreditToken:PrivateCreditAllocation",
+    );
+    const [archivedDeliveryApproval, approvedPayment, deliveryAllocation] =
+      await Promise.all([
+        this.getDeliveryApprovalPending(deliveryApprovalContractId),
+        this.getApprovedTokenizedPayment(approvedCreated.contractId),
+        this.getPrivateCreditAllocation(allocationCreated.contractId),
+      ]);
+    return {
+      deliveryApproval: archivedDeliveryApproval,
+      approvedPayment,
+      deliveryAllocation,
+    };
   }
 
   async getApprovedTokenizedPayment(contractId) {
@@ -836,6 +897,21 @@ export class CantonClient {
         code: "ALLOCATION_REQUEST_MISMATCH",
       });
     }
+    const deliveryAllocation = await this.getPrivateCreditAllocation(
+      paymentRequest.deliveryAllocationCid,
+    );
+    if (deliveryAllocation.status !== "active") {
+      throw new CantonApiError("Private-credit allocation is not active.", {
+        status: 409,
+        code: "DELIVERY_ALLOCATION_INACTIVE",
+      });
+    }
+    if (deliveryAllocation.requestId !== paymentRequest.requestId) {
+      throw new CantonApiError("The private-credit allocation belongs to another settlement.", {
+        status: 409,
+        code: "DELIVERY_ALLOCATION_REQUEST_MISMATCH",
+      });
+    }
 
     const registryContext = await this.registryContextLoader(allocationContractId);
     if (
@@ -871,29 +947,49 @@ export class CantonClient {
         ExerciseCommand: {
           templateId: tokenizedTemplateId("TokenizedPaymentRequest"),
           contractId: requestContractId,
-          choice: "CompleteTokenizedPayment",
+          choice: "CompleteTokenizedDvP",
           choiceArgument: {
-            allocationCid: allocationContractId,
-            extraArgs: {
+            paymentAllocationCid: allocationContractId,
+            paymentExtraArgs: {
               context: registryContext.choiceContextData,
+              meta: { values: {} },
+            },
+            deliveryExtraArgs: {
+              context: { values: {} },
               meta: { values: {} },
             },
           },
         },
       },
-      commandName: "ui-complete-tokenized-payment",
+      commandName: "ui-complete-tokenized-dvp",
       actor: context.providerParty,
       token: context.providerToken,
       ledgerUrl: this.providerLedgerUrl,
       disclosedContracts,
     });
-    const created = extractCreatedEvent(transaction, ":Settlement.Regulated:PaymentPrepared");
-    const [archivedRequest, archivedAgreement, archivedAllocation, paymentPrepared] =
+    const receiptCreated = extractCreatedEvent(
+      transaction,
+      ":Settlement.TokenizedPayment:TokenizedSettlementReceipt",
+    );
+    const holdingCreated = extractCreatedEvent(
+      transaction,
+      ":Settlement.PrivateCreditToken:PrivateCreditHolding",
+    );
+    const [
+      archivedRequest,
+      archivedAgreement,
+      archivedAllocation,
+      archivedDeliveryAllocation,
+      assetHolding,
+      settlementReceipt,
+    ] =
       await Promise.all([
         this.getTokenizedPaymentRequest(requestContractId),
         this.getPurchaseAgreement(paymentRequest.agreementCid),
         this.getCantonCoinAllocation(allocationContractId),
-        this.getPaymentPrepared(created.contractId),
+        this.getPrivateCreditAllocation(paymentRequest.deliveryAllocationCid),
+        this.getPrivateCreditHolding(holdingCreated.contractId),
+        this.getSettlementReceipt(receiptCreated.contractId),
       ]);
     const balances = balancesBefore
       ? await this.waitForBalanceEvidence(balancesBefore, paymentRequest.terms.paymentAmount)
@@ -908,7 +1004,46 @@ export class CantonClient {
       paymentRequest: archivedRequest,
       purchaseAgreement: archivedAgreement,
       allocation: archivedAllocation,
-      paymentPrepared: { ...paymentPrepared, balanceEvidence: balances },
+      deliveryAllocation: archivedDeliveryAllocation,
+      assetHolding,
+      settlementReceipt: { ...settlementReceipt, balanceEvidence: balances },
+    };
+  }
+
+  async getPrivateCreditAllocation(contractId) {
+    const contract = await this.getContract(contractId, "private-credit allocation");
+    const allocation = contract.payload.allocation ?? {};
+    const transferLeg = allocation.transferLeg ?? {};
+    const settlement = allocation.settlement ?? {};
+    return {
+      kind: "deliveryAllocation",
+      contractId,
+      templateId: contract.created.templateId,
+      status: contract.status,
+      requestId: settlement.settlementRef?.id,
+      settlementRefCid: settlement.settlementRef?.cid,
+      amount: transferLeg.amount,
+      instrumentId: transferLeg.instrumentId?.id,
+      sender: transferLeg.sender,
+      receiver: transferLeg.receiver,
+      settleBefore: settlement.settleBefore,
+      holdingCid: contract.payload.holdingCid,
+    };
+  }
+
+  async getPrivateCreditHolding(contractId) {
+    const contract = await this.getContract(contractId, "private-credit holding");
+    const payload = contract.payload;
+    return {
+      kind: "assetHolding",
+      contractId,
+      templateId: contract.created.templateId,
+      status: contract.status,
+      custodian: payload.custodian,
+      issuer: payload.issuer,
+      owner: payload.owner,
+      instrumentId: payload.instrumentId?.id,
+      amount: payload.amount,
     };
   }
 
@@ -1017,15 +1152,30 @@ export class CantonClient {
   async getSettlementReceipt(contractId) {
     const contract = await this.getContract(contractId, "settlement receipt");
     const { created, payload } = contract;
+    if (!payload.requestId) {
+      return {
+        kind: "settlementReceipt",
+        contractId,
+        templateId: created.templateId ?? templateId("SettlementReceipt"),
+        status: contract.status,
+        terms: payload.terms,
+        eligibilityAttestationCid: payload.eligibilityAttestationCid,
+        paymentRef: payload.paymentRef,
+        deliveryRef: payload.deliveryRef,
+        settledAt: payload.settledAt,
+      };
+    }
     return {
       kind: "settlementReceipt",
       contractId,
-      templateId: created.templateId ?? templateId("SettlementReceipt"),
+      templateId: created.templateId ?? tokenizedTemplateId("TokenizedSettlementReceipt"),
       status: contract.status,
       terms: payload.terms,
       eligibilityAttestationCid: payload.eligibilityAttestationCid,
-      paymentRef: payload.paymentRef,
-      deliveryRef: payload.deliveryRef,
+      requestId: payload.requestId,
+      paymentAllocationCid: payload.paymentAllocationCid,
+      deliveryAllocationCid: payload.deliveryAllocationCid,
+      assetHoldingCids: payload.assetHoldingCids ?? [],
       settledAt: payload.settledAt,
     };
   }
@@ -1084,6 +1234,8 @@ export class CantonClient {
       agreementCid: payload.agreementCid,
       eligibilityAttestationCid: payload.eligibilityAttestationCid,
       paymentInstrumentId: payload.paymentInstrumentId,
+      assetInstrumentId: payload.assetInstrumentId,
+      deliveryAllocationCid: payload.deliveryAllocationCid,
       requestedAt: payload.requestedAt,
       allocateBefore: payload.allocateBefore,
       settleBefore: payload.settleBefore,

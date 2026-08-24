@@ -422,8 +422,11 @@ test("approves compliance as verifier and creates a purchase agreement", async (
 test("authorizes a tokenized payment across provider, investor, and wallet APIs", async () => {
   const agreementContractId = "00agreement1234567";
   const proposalContractId = "00proposal123456789";
+  const deliveryApprovalContractId = "00deliveryapproval12345";
   const approvedContractId = "00approved123456789";
   const requestContractId = "00request1234567890";
+  const deliveryAllocationContractId = "00deliveryallocation123";
+  let deliveryApprovalArchived = false;
   let proposalArchived = false;
   let approvalArchived = false;
   const submissions = [];
@@ -445,6 +448,7 @@ test("authorizes a tokenized payment across provider, investor, and wallet APIs"
     agreementCid: agreementContractId,
     eligibilityAttestationCid: contractId,
     paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+    assetInstrumentId: { admin: context.providerParty, id: terms.assetId },
     requestedAt: "2026-08-21T20:00:00Z",
     allocateBefore: "2026-08-21T21:00:00Z",
     settleBefore: "2099-08-21T22:00:00Z",
@@ -486,8 +490,29 @@ test("authorizes a tokenized payment across provider, investor, and wallet APIs"
             events: [
               {
                 CreatedEvent: {
+                  contractId: deliveryApprovalContractId,
+                  templateId: "pkg:Settlement.TokenizedPayment:DeliveryApprovalPending",
+                },
+              },
+            ],
+          },
+        });
+      }
+      if (command.ExerciseCommand.choice === "ApprovePrivateCreditDelivery") {
+        deliveryApprovalArchived = true;
+        return jsonResponse({
+          transaction: {
+            events: [
+              {
+                CreatedEvent: {
                   contractId: approvedContractId,
                   templateId: "pkg:Settlement.TokenizedPayment:ApprovedTokenizedPayment",
+                },
+              },
+              {
+                CreatedEvent: {
+                  contractId: deliveryAllocationContractId,
+                  templateId: "pkg:Settlement.PrivateCreditToken:PrivateCreditAllocation",
                 },
               },
             ],
@@ -518,30 +543,72 @@ test("authorizes a tokenized payment across provider, investor, and wallet APIs"
     if (body.contractId === proposalContractId) {
       return contractEvent(proposalContractId, paymentPayload, proposalArchived);
     }
-    if (body.contractId === approvedContractId) {
-      return contractEvent(approvedContractId, paymentPayload, approvalArchived);
+    if (body.contractId === deliveryApprovalContractId) {
+      return contractEvent(
+        deliveryApprovalContractId,
+        paymentPayload,
+        deliveryApprovalArchived,
+      );
     }
-    return contractEvent(requestContractId, paymentPayload);
+    if (body.contractId === approvedContractId) {
+      return contractEvent(
+        approvedContractId,
+        { ...paymentPayload, deliveryAllocationCid: deliveryAllocationContractId },
+        approvalArchived,
+      );
+    }
+    if (body.contractId === deliveryAllocationContractId) {
+      return contractEvent(deliveryAllocationContractId, {
+        custodian: context.providerParty,
+        issuer: context.providerParty,
+        holdingCid: "00lockedholding12345678",
+        allocation: {
+          settlement: {
+            settlementRef: { id: paymentPayload.requestId, cid: agreementContractId },
+            settleBefore: paymentPayload.settleBefore,
+          },
+          transferLegId: "delivery",
+          transferLeg: {
+            sender: context.providerParty,
+            receiver: context.investorParty,
+            amount: "1000.0",
+            instrumentId: paymentPayload.assetInstrumentId,
+          },
+        },
+      });
+    }
+    return contractEvent(requestContractId, {
+      ...paymentPayload,
+      deliveryAllocationCid: deliveryAllocationContractId,
+    });
   };
   const client = new CantonClient({ fetchImpl, contextLoader: async () => context });
 
   const proposal = await client.createTokenizedPaymentProposal({ agreementContractId });
-  const approval = await client.approveTokenizedPayment(proposal.contractId);
-  const acceptance = await client.acceptTokenizedPayment(approval.approvedPayment.contractId);
+  const verifierApproval = await client.approveTokenizedPayment(proposal.contractId);
+  const deliveryApproval = await client.approvePrivateCreditDelivery(
+    verifierApproval.deliveryApproval.contractId,
+  );
+  const acceptance = await client.acceptTokenizedPayment(
+    deliveryApproval.approvedPayment.contractId,
+  );
 
   assert.equal(proposal.status, "active");
-  assert.equal(approval.paymentProposal.status, "archived");
-  assert.equal(approval.approvedPayment.status, "active");
+  assert.equal(verifierApproval.paymentProposal.status, "archived");
+  assert.equal(verifierApproval.deliveryApproval.status, "active");
+  assert.equal(deliveryApproval.deliveryApproval.status, "archived");
+  assert.equal(deliveryApproval.deliveryAllocation.status, "active");
   assert.equal(acceptance.approvedPayment.status, "archived");
   assert.equal(acceptance.paymentRequest.status, "active");
   assert.equal(acceptance.paymentRequest.walletDiscovered, true);
   assert.deepEqual(submissions.map(({ body }) => body.commands.actAs[0]), [
     context.providerParty,
     context.providerParty,
+    context.providerParty,
     context.investorParty,
   ]);
-  assert.equal(submissions[2].url, "http://127.0.0.1:2975/v2/commands/submit-and-wait-for-transaction");
-  assert.equal(submissions[2].options.headers.Authorization, "Bearer user-token");
+  assert.equal(submissions[3].url, "http://127.0.0.1:2975/v2/commands/submit-and-wait-for-transaction");
+  assert.equal(submissions[3].options.headers.Authorization, "Bearer user-token");
 });
 
 test("allocates a wallet-discovered payment request as the investor", async () => {
@@ -654,11 +721,13 @@ test("allocates a wallet-discovered payment request as the investor", async () =
   });
 });
 
-test("executes an allocation atomically and returns consumed contract evidence", async () => {
+test("executes both DvP allocations atomically and returns settlement evidence", async () => {
   const requestContractId = "00request1234567890";
   const agreementContractId = "00agreement1234567";
   const allocationContractId = "00allocation12345678";
-  const preparedContractId = "00prepared1234567890";
+  const deliveryAllocationContractId = "00deliveryallocation123";
+  const assetHoldingContractId = "00assetholding123456789";
+  const receiptContractId = "00dvpreceipt1234567890";
   const terms = {
     issuer: context.providerParty,
     investor: context.investorParty,
@@ -677,6 +746,8 @@ test("executes an allocation atomically and returns consumed contract evidence",
     agreementCid: agreementContractId,
     eligibilityAttestationCid: contractId,
     paymentInstrumentId: { admin: context.dsoParty, id: "Amulet" },
+    assetInstrumentId: { admin: context.providerParty, id: terms.assetId },
+    deliveryAllocationCid: deliveryAllocationContractId,
     requestedAt: "2026-08-21T20:00:00Z",
     allocateBefore: "2026-08-21T21:00:00Z",
     settleBefore: "2099-08-21T22:00:00Z",
@@ -695,6 +766,24 @@ test("executes an allocation atomically and returns consumed contract evidence",
       },
     },
   };
+  const deliveryAllocationPayload = {
+    custodian: context.providerParty,
+    issuer: context.providerParty,
+    holdingCid: "00lockedholding12345678",
+    allocation: {
+      settlement: {
+        settlementRef: { id: paymentPayload.requestId, cid: agreementContractId },
+        settleBefore: paymentPayload.settleBefore,
+      },
+      transferLegId: "delivery",
+      transferLeg: {
+        sender: context.providerParty,
+        receiver: context.investorParty,
+        amount: "1000.0",
+        instrumentId: paymentPayload.assetInstrumentId,
+      },
+    },
+  };
   const disclosures = [
     {
       templateId: "pkg:Splice.AmuletRules:AmuletRules",
@@ -705,18 +794,16 @@ test("executes an allocation atomically and returns consumed contract evidence",
   ];
   let completed = false;
   let completionSubmission;
-  const event = (id, payload) =>
+  const event = (id, payload, { archived = completed, templateId } = {}) =>
     jsonResponse({
       created: {
         createdEvent: {
           contractId: id,
-          templateId: id === preparedContractId
-            ? "pkg:Settlement.Regulated:PaymentPrepared"
-            : undefined,
+          templateId,
           createArgument: payload,
         },
       },
-      archived: completed && id !== preparedContractId ? { archivedEvent: { contractId: id } } : null,
+      archived: archived ? { archivedEvent: { contractId: id } } : null,
     });
   const fetchImpl = async (url, options) => {
     const body = options.body ? JSON.parse(options.body) : null;
@@ -744,8 +831,16 @@ test("executes an allocation atomically and returns consumed contract evidence",
           events: [
             {
               CreatedEvent: {
-                contractId: preparedContractId,
-                templateId: "pkg:Settlement.Regulated:PaymentPrepared",
+                contractId: receiptContractId,
+                templateId:
+                  "pkg:Settlement.TokenizedPayment:TokenizedSettlementReceipt",
+              },
+            },
+            {
+              CreatedEvent: {
+                contractId: assetHoldingContractId,
+                templateId:
+                  "pkg:Settlement.PrivateCreditToken:PrivateCreditHolding",
               },
             },
           ],
@@ -756,6 +851,9 @@ test("executes an allocation atomically and returns consumed contract evidence",
     if (body.contractId === allocationContractId) {
       return event(allocationContractId, allocationPayload);
     }
+    if (body.contractId === deliveryAllocationContractId) {
+      return event(deliveryAllocationContractId, deliveryAllocationPayload);
+    }
     if (body.contractId === agreementContractId) {
       return event(agreementContractId, {
         terms,
@@ -763,13 +861,39 @@ test("executes an allocation atomically and returns consumed contract evidence",
         settleBefore: paymentPayload.settleBefore,
       });
     }
-    assert.equal(body.contractId, preparedContractId);
-    return event(preparedContractId, {
-      terms,
-      eligibilityAttestationCid: contractId,
-      settleBefore: paymentPayload.settleBefore,
-      paymentRef: paymentPayload.requestId,
-    });
+    if (body.contractId === assetHoldingContractId) {
+      return event(
+        assetHoldingContractId,
+        {
+          custodian: context.providerParty,
+          issuer: context.providerParty,
+          owner: context.investorParty,
+          instrumentId: paymentPayload.assetInstrumentId,
+          amount: "1000.0",
+        },
+        {
+          archived: false,
+          templateId: "pkg:Settlement.PrivateCreditToken:PrivateCreditHolding",
+        },
+      );
+    }
+    assert.equal(body.contractId, receiptContractId);
+    return event(
+      receiptContractId,
+      {
+        terms,
+        eligibilityAttestationCid: contractId,
+        requestId: paymentPayload.requestId,
+        paymentAllocationCid: allocationContractId,
+        deliveryAllocationCid: deliveryAllocationContractId,
+        assetHoldingCids: [assetHoldingContractId],
+        settledAt: "2026-08-21T20:30:00Z",
+      },
+      {
+        archived: false,
+        templateId: "pkg:Settlement.TokenizedPayment:TokenizedSettlementReceipt",
+      },
+    );
   };
   const client = new CantonClient({
     fetchImpl,
@@ -789,15 +913,32 @@ test("executes an allocation atomically and returns consumed contract evidence",
   assert.equal(completionSubmission.options.headers.Authorization, "Bearer provider-token");
   assert.deepEqual(commandEnvelope.actAs, [context.providerParty]);
   assert.deepEqual(commandEnvelope.disclosedContracts, disclosures);
-  assert.equal(exercise.choice, "CompleteTokenizedPayment");
-  assert.equal(exercise.choiceArgument.allocationCid, allocationContractId);
+  assert.equal(exercise.choice, "CompleteTokenizedDvP");
+  assert.equal(exercise.choiceArgument.paymentAllocationCid, allocationContractId);
+  assert.deepEqual(exercise.choiceArgument.paymentExtraArgs.context, {
+    values: { "expire-lock": { tag: "AV_Bool", value: true } },
+  });
+  assert.deepEqual(exercise.choiceArgument.deliveryExtraArgs, {
+    context: { values: {} },
+    meta: { values: {} },
+  });
   assert.equal(result.paymentRequest.status, "archived");
   assert.equal(result.purchaseAgreement.status, "archived");
   assert.equal(result.allocation.status, "archived");
-  assert.equal(result.paymentPrepared.status, "active");
-  assert.equal(result.paymentPrepared.balanceEvidence.investorLockedReleased, "10");
-  assert.equal(result.paymentPrepared.balanceEvidence.issuerReceived, "10");
-  assert.equal(result.paymentPrepared.balanceEvidence.verified, true);
+  assert.equal(result.deliveryAllocation.status, "archived");
+  assert.equal(result.assetHolding.status, "active");
+  assert.equal(result.assetHolding.owner, context.investorParty);
+  assert.equal(result.assetHolding.amount, "1000.0");
+  assert.equal(result.settlementReceipt.status, "active");
+  assert.equal(result.settlementReceipt.paymentAllocationCid, allocationContractId);
+  assert.equal(
+    result.settlementReceipt.deliveryAllocationCid,
+    deliveryAllocationContractId,
+  );
+  assert.deepEqual(result.settlementReceipt.assetHoldingCids, [assetHoldingContractId]);
+  assert.equal(result.settlementReceipt.balanceEvidence.investorLockedReleased, "10");
+  assert.equal(result.settlementReceipt.balanceEvidence.issuerReceived, "10");
+  assert.equal(result.settlementReceipt.balanceEvidence.verified, true);
 });
 
 test("confirms delivery as custodian and returns an archived prepared payment", async () => {
