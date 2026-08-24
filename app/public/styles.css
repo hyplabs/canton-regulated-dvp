@@ -687,11 +687,10 @@ h2 {
 
 .contract-tabs {
   display: grid;
-  grid-template-columns: repeat(11, minmax(72px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 12px 0;
   border-bottom: 1px solid var(--line);
-  overflow-x: auto;
 }
 
 .contract-tabs button {
@@ -897,6 +896,10 @@ h2 {
     border-left: 0;
   }
 
+  .contract-tabs {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
   .inspector-empty {
     min-height: 180px;
   }
@@ -967,7 +970,17 @@ h2 {
   }
 
   .timeline {
-    grid-template-columns: repeat(6, 94px);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    row-gap: 20px;
+    overflow-x: visible;
+  }
+
+  .timeline-step {
+    min-width: 0;
+  }
+
+  .timeline-step:nth-child(3)::after {
+    display: none;
   }
 
   .attestation-form {
@@ -989,6 +1002,10 @@ h2 {
 
   .inspector {
     padding: 22px 14px 36px;
+  }
+
+  .contract-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

@@ -40,7 +40,7 @@ Generated DARs:
 ```text
 daml/model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
 daml/tests/.daml/dist/canton-regulated-settlement-tests-0.1.0.dar
-daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.3.0.dar
+daml/tokenized-model/.daml/dist/canton-regulated-dvp-model-0.1.0.dar
 daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.3.0.dar
 ```
 
@@ -91,10 +91,11 @@ Then run the real Canton Coin/private-credit DvP from this repository:
 ./scripts/localnet-demo.sh
 ```
 
-The runner is repeatable. It uploads only production DARs, uses the current
-tokenized model package ID, funds the LocalNet investor when necessary, creates
-the custodian-controlled private-credit allocation, and prints the final DvP
-receipt, both consumed allocations, investor holding, and before/after balances.
+The runner is repeatable. It uploads and vets only production DARs, verifies the
+current DvP package on both participants, funds the LocalNet investor when
+necessary, creates the custodian-controlled private-credit allocation, and
+prints the final DvP receipt, both consumed allocations, investor holding, and
+before/after balances.
 
 Presentation modes can be combined:
 
@@ -134,6 +135,19 @@ distribution and reopen the shell. If `localnet-demo.sh` cannot find
 `splice-onboarding`, start Quickstart first.
 If a wallet request times out, check `docker ps` and wait until both `canton` and
 `splice` are healthy before retrying.
+If Docker Desktop resumes an old `splice` container that stays in `health:
+starting` while `canton` is healthy, recreate only that service before starting
+Quickstart again:
+
+```bash
+make restart-service SERVICE=splice
+make start
+```
+
+If Canton reports `NOT_VALID_UPGRADE_PACKAGE`, do not bypass the package check.
+Keep compatible choice signatures within one Daml package lineage, or give a
+behaviorally incompatible model a new package name, as this POC does with
+`canton-regulated-dvp-model`.
 
 The Token Standard API DARs are checked into `daml/vendor` so builds do not
 depend on the sibling research repositories. Their origin, license, commit, and

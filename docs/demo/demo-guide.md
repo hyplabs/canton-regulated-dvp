@@ -183,7 +183,8 @@ Rejection was atomic; request, agreement, and both allocations remain active
   continue. The private-credit allocation also exposes standard withdraw/cancel
   behavior, though the current runner does not automate recovery.
 - If services are warming up, wait for `canton` and `splice` to become healthy.
-- Stop LocalNet with `make stop`; use `make clean` only for an intentional reset.
+- Stop LocalNet with `make stop`; use `make clean-docker` only for an
+  intentional reset because it removes the Quickstart application volumes.
 
 ## Honest Limitations
 
@@ -191,5 +192,5 @@ Rejection was atomic; request, agreement, and both allocations remain active
   production registry with splits, merges, fees, or secondary transfers.
 - Provider-side business roles share one LocalNet party.
 - Shared-secret auth and faucet-funded Canton Coin are LocalNet conveniences.
-- The new full-DvP runner must be rehearsed again on Quickstart before a live
-  presentation; the current shell does not expose Docker Desktop to WSL.
+- The LocalNet runner depends on the official Quickstart APIs and should be
+  smoke tested once before each live presentation.

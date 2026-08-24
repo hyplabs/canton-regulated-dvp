@@ -4,7 +4,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MODULE_ID = "#canton-regulated-settlement-model:Settlement.Regulated";
 const TOKENIZED_MODULE_ID =
-  "#canton-tokenized-settlement-model:Settlement.TokenizedPayment";
+  "#canton-regulated-dvp-model:Settlement.TokenizedPayment";
 const templateId = (template) => `${MODULE_ID}:${template}`;
 const tokenizedTemplateId = (template) => `${TOKENIZED_MODULE_ID}:${template}`;
 

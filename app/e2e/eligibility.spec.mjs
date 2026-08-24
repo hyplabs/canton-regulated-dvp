@@ -215,8 +215,11 @@ test("mobile layout does not overflow the viewport", async ({ page }) => {
   const dimensions = await page.evaluate(() => ({
     viewport: document.documentElement.clientWidth,
     body: document.body.scrollWidth,
+    timelineVisible: document.querySelector(".timeline").clientWidth,
+    timelineContent: document.querySelector(".timeline").scrollWidth,
   }));
   expect(dimensions.body).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.timelineContent).toBeLessThanOrEqual(dimensions.timelineVisible);
 });
 
 test("discards a remembered contract after a LocalNet reset", async ({ page }) => {
@@ -384,6 +387,12 @@ test("roles complete the regulated settlement lifecycle", async ({ page }) => {
   await expect(page.locator("#contract-fields")).toContainText("Exact transfer confirmed");
   await expect(page.locator("#contract-fields")).toContainText("50 -> 60 Amulet");
   await expect(page.locator("#contract-fields")).toContainText("Auditor");
+
+  const tabDimensions = await page.locator("#contract-tabs").evaluate((tabs) => ({
+    visible: tabs.clientWidth,
+    content: tabs.scrollWidth,
+  }));
+  expect(tabDimensions.content).toBeLessThanOrEqual(tabDimensions.visible);
 
   await page.getByRole("tab", { name: "Cash" }).click();
   await expect(page.getByText("Archived Canton Coin allocation contract", { exact: true })).toBeVisible();

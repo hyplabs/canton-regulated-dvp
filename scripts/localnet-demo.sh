@@ -54,7 +54,7 @@ runtime_script="$repo_root/scripts/localnet-demo-runtime.sh"
 model_dar=$(find "$repo_root/daml/model/.daml/dist" -maxdepth 1 \
   -name 'canton-regulated-settlement-model-*.dar' -print | sort -V | tail -n 1)
 tokenized_dar=$(find "$repo_root/daml/tokenized-model/.daml/dist" -maxdepth 1 \
-  -name 'canton-tokenized-settlement-model-*.dar' -print | sort -V | tail -n 1)
+  -name 'canton-regulated-dvp-model-*.dar' -print | sort -V | tail -n 1)
 
 if [[ -z "$model_dar" || -z "$tokenized_dar" ]]; then
   echo "Production DARs were not found. Run ./scripts/test.sh first." >&2
@@ -73,7 +73,7 @@ fi
 
 tokenized_package_id=$(
   unzip -Z1 "$tokenized_dar" |
-    sed -nE 's#.*canton-tokenized-settlement-model-[0-9.]+-([0-9a-f]{64})\.dalf$#\1#p' |
+    sed -nE 's#.*canton-regulated-dvp-model-[0-9.]+-([0-9a-f]{64})\.dalf$#\1#p' |
     head -n 1
 )
 
@@ -98,20 +98,46 @@ DO_INIT=false
 source /app/utils.sh
 source /app/app-provider-auth.sh 2>/dev/null
 for dar in "/tmp/$MODEL_DAR_NAME" "/tmp/$TOKENIZED_DAR_NAME"; do
-  curl -fsS "http://canton:3${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/packages" \
+  response=$(curl -sS -w $'\n%{http_code}' \
+    "http://canton:3${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/dars?vetAllPackages=true" \
     -H "Authorization: Bearer $APP_PROVIDER_PARTICIPANT_ADMIN_TOKEN" \
     -H 'Content-Type: application/octet-stream' \
-    --data-binary @"$dar" >/dev/null
+    --data-binary @"$dar")
+  status=$(tail -n 1 <<<"$response")
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Provider package upload failed with HTTP $status: $(sed '$d' <<<"$response")" >&2
+    exit 1
+  fi
 done
 
 source /app/app-user-auth.sh 2>/dev/null
 for dar in "/tmp/$MODEL_DAR_NAME" "/tmp/$TOKENIZED_DAR_NAME"; do
-  curl -fsS "http://canton:2${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/packages" \
+  response=$(curl -sS -w $'\n%{http_code}' \
+    "http://canton:2${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/dars?vetAllPackages=true" \
     -H "Authorization: Bearer $APP_USER_PARTICIPANT_ADMIN_TOKEN" \
     -H 'Content-Type: application/octet-stream' \
-    --data-binary @"$dar" >/dev/null
+    --data-binary @"$dar")
+  status=$(tail -n 1 <<<"$response")
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "Investor package upload failed with HTTP $status: $(sed '$d' <<<"$response")" >&2
+    exit 1
+  fi
 done
 UPLOAD
+
+docker exec \
+  -e TOKENIZED_PACKAGE_ID="$tokenized_package_id" \
+  splice-onboarding bash -s <<'VERIFY'
+set -eo pipefail
+DO_INIT=false
+source /app/utils.sh
+source /app/app-provider-auth.sh 2>/dev/null
+curl -fsS "http://canton:3${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/packages/$TOKENIZED_PACKAGE_ID" \
+  -H "Authorization: Bearer $APP_PROVIDER_PARTICIPANT_ADMIN_TOKEN" >/dev/null
+source /app/app-user-auth.sh 2>/dev/null
+curl -fsS "http://canton:2${PARTICIPANT_JSON_API_PORT_SUFFIX}/v2/packages/$TOKENIZED_PACKAGE_ID" \
+  -H "Authorization: Bearer $APP_USER_PARTICIPANT_ADMIN_TOKEN" >/dev/null
+VERIFY
 
 echo "Running the regulated Canton Coin settlement..."
 docker exec -i \
