@@ -1,90 +1,105 @@
-# Tokenized Payment Architecture
+# Tokenized DvP Architecture
 
-Date: 2026-08-21
+Date: 2026-08-24
 
 ## Purpose
 
-This V2 slice replaces V1's manually supplied payment reference with execution
-of a Canton Token Standard allocation. It deliberately reuses the V1 states
-after payment so the integration is narrow and reviewable.
+The integration model settles a private-credit primary issuance against Canton
+Coin. Both sides are represented as Canton Token Standard allocations and both
+`Allocation_ExecuteTransfer` choices run inside one Daml transaction.
 
 ```text
 PurchaseAgreement
         |
-proposal -> verifier approval -> investor acceptance
+issuer proposal -> verifier approval -> custodian asset reservation
+        |
+investor acceptance
         |
 TokenizedPaymentRequest (implements AllocationRequest)
         +
-funded Allocation (implemented by a token registry)
+Canton Coin Allocation + PrivateCreditAllocation
         |
-        | CompleteTokenizedPayment
+        | CompleteTokenizedDvP
         v
-PaymentPrepared -> ReadyToSettle -> SettlementReceipt
+TokenizedSettlementReceipt + investor PrivateCreditHolding
 ```
 
-## Standard Boundary
+## Standard Request
 
-`TokenizedPaymentRequest` exposes one transfer leg through the standard
+`TokenizedPaymentRequest` exposes two named transfer legs through the standard
 `AllocationRequest` interface:
 
-| Field | Value |
-| --- | --- |
-| sender | investor |
-| receiver | issuer |
-| amount | settlement payment amount |
-| instrument | configured `InstrumentId` |
-| executor | issuer |
-| settlement reference | payment request ID + purchase agreement contract ID |
+| Leg | Sender | Receiver | Amount | Instrument admin |
+| --- | --- | --- | --- | --- |
+| `payment` | investor | issuer | settlement payment | Canton Coin registry |
+| `delivery` | issuer | investor | note units | custodian |
 
-The app does not depend on a concrete token template. It accepts
-`ContractId Allocation`, fetches its interface view, and requires the transfer
-leg ID, transfer data, and complete `SettlementInfo` to equal its request. It
-then exercises `Allocation_ExecuteTransfer`.
+Both legs share one `SettlementInfo`, including the issuer executor, request ID,
+purchase-agreement contract ID, allocation deadline, and settlement deadline.
+Stable leg IDs let each allocation identify exactly which obligation it funds.
+
+## Private-Credit Token
+
+`Settlement.PrivateCreditToken` supplies a focused Token Standard implementation
+for the asset side:
+
+- `PrivateCreditHolding` represents investor-owned or issuer-owned note units.
+- `PrivateCreditLockedHolding` records units reserved for one settlement.
+- `PrivateCreditAllocation` implements `Allocation` over that locked holding.
+- `reservePrimaryIssuance` lets the custodian reserve issuer units and returns an
+  interface-typed `ContractId Allocation`.
+
+Executing the allocation archives the locked holding and creates a
+`PrivateCreditHolding` for the investor. Cancel and withdraw restore a holding
+to the sender. This is intentionally a primary-issuance model, not a general
+fungible-token registry with splitting, merging, fees, or secondary transfers.
+
+## Authority Accumulation
+
+The workflow avoids an artificial cross-participant create command:
+
+| State | New authority |
+| --- | --- |
+| `TokenizedPaymentProposal` | issuer signatory |
+| `DeliveryApprovalPending` | verifier controls approval |
+| `ApprovedTokenizedPayment` | custodian controls reservation |
+| `TokenizedPaymentRequest` | investor controls acceptance |
+
+Each consumed parent contributes its signatory authority to direct
+consequences, and each choice controller contributes the next party. The final
+request is signed by issuer, verifier, custodian, and investor.
+
+Completion is controlled by issuer and verifier. The minimal LocalNet maps both
+roles to app-provider. Independently hosted parties require interactive
+multi-party submission or another staged approval.
 
 ## Atomic Transition
 
-`CompleteTokenizedPayment` performs one transaction that:
+`CompleteTokenizedDvP`:
 
-1. Re-fetches the active purchase agreement and eligibility attestation.
-2. Checks request time, settlement deadline, terms, attestation, and allocation.
-3. Executes the allocation's standard transfer choice.
-4. Archives the purchase agreement.
-5. Creates `PaymentPrepared` with the settlement reference as `paymentRef`.
+1. Fetches the active purchase agreement and eligibility attestation.
+2. Rechecks request time, eligibility, terms, and settlement deadline.
+3. Fetches both allocations through the standard `Allocation` interface.
+4. Compares each leg ID, complete `TransferLeg`, and complete `SettlementInfo`.
+5. Executes the Canton Coin allocation with registry context and disclosures.
+6. Executes the private-credit allocation.
+7. Archives the purchase agreement.
+8. Creates `TokenizedSettlementReceipt` with both allocation IDs and the
+   investor holding IDs returned by the delivery transfer.
 
-If any check or child exercise fails, Daml rejects the whole transaction. The
-allocation, request, and agreement remain active and no next state is created.
+Daml commits this as one transaction. The test
+`testBrokenDeliveryRollsBackPayment` deliberately lets the payment child choice
+execute and then fails the delivery child choice. It proves that the payment
+allocation remains active and no payment transfer receipt survives.
 
-## Authorization
+## Test And Runtime Boundaries
 
-The request signatories are issuer, investor, and verifier. Completion is
-controlled jointly by issuer and verifier. The request therefore records the
-investor's advance authorization while retaining the V1 compliance gate; its
-direct child allocation exercise has the sender, receiver, and executor
-authority required by the standard.
+The Daml test package uses `MockAllocation` for the payment leg so mismatch,
+expiry, inactive-contract, authorization, and rollback cases remain fast and
+deterministic. The delivery leg uses the production private-credit allocation.
 
-Those parties may be hosted on different Canton participants, so the request is
-not created with one artificial multi-party submission. `TokenizedPaymentProposal`
-is signed by the issuer, `ApproveTokenizedPayment` adds verifier authority in an
-`ApprovedTokenizedPayment`, and `AcceptTokenizedPayment` adds investor authority
-when it creates the final request. Each action can be submitted through the
-participant that hosts its controller.
-
-The minimal LocalNet runner maps issuer and verifier to the same provider party,
-so that party can exercise their jointly controlled completion choice. With
-independently hosted issuer and verifier parties, completion needs Canton's
-interactive multi-party submission flow or a further staged approval state.
-
-The instrument's wallet or registry remains responsible for creating a funded
-allocation before `allocateBefore`. The application executor may execute it
-only before `settleBefore`.
-
-## Test Boundary
-
-`MockAllocation` remains a test-only implementation of the real `Allocation`
-interface. It keeps failure tests fast and deterministic. The separate
-`scripts/localnet-demo.sh` path uses Quickstart's real Canton Coin wallet and
-registry, including registry-provided choice context and disclosed contracts.
-
-That LocalNet path proves payment-versus-workflow with real balances. Full DvP
-still requires a second standard allocation for delivery, with both legs
-executed in the same settlement transaction.
+The LocalNet runner replaces only the payment mock with a real wallet-funded
+Canton Coin allocation. It obtains execute-transfer context and disclosed
+contracts from the Canton Coin registry; the private-credit allocation needs no
+off-ledger context. The full two-leg runner is implemented but has not yet been
+rerun in the current shell because Docker Desktop WSL integration is disabled.

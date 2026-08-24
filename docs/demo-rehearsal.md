@@ -1,10 +1,11 @@
-# LocalNet Demo Rehearsal
+# Historical LocalNet Payment Rehearsal
 
 Date: 2026-08-21
 
-This records a stopped-stack rehearsal of the regulated Canton Coin demo. It is
-release evidence for the current POC, not a performance benchmark for Canton or
-production infrastructure.
+This records the 2026-08-21 stopped-stack rehearsal of the earlier one-leg
+Canton Coin path. It supports the wallet and registry integration retained by
+the current POC, but it is not evidence that the new private-credit allocation
+leg has run on Quickstart. A full-DvP rehearsal is still required.
 
 ## Environment
 
@@ -31,7 +32,8 @@ it is a short-lived one-shot container; `canton`, `splice`,
 
 ## Ledger Evidence
 
-The investor attempted the provider-controlled `CompleteTokenizedPayment`
+The investor attempted the then-current provider-controlled
+`CompleteTokenizedPayment`
 choice. Canton rejected the command with `DAML_AUTHORIZATION_ERROR`. Follow-up
 Ledger API queries confirmed that the payment request, purchase agreement, and
 Canton Coin allocation were still active, demonstrating atomic rejection.
@@ -50,7 +52,7 @@ The separate `--interactive` mode was also exercised successfully. It paused
 after the standard wallet discovered the custom allocation request and resumed
 after presenter input.
 
-## Presenter Recommendation
+## Historical Timing Note
 
 Start Quickstart at least ten minutes before a meeting, confirm the core
 services are healthy, and then use:
@@ -59,14 +61,17 @@ services are healthy, and then use:
 ./scripts/localnet-demo.sh --interactive --show-negative
 ```
 
-The 53.84-second automated runtime leaves enough room for wallet inspection and
-explanation in the five-minute presentation path. Starting from a stopped stack
-is repeatable, but the six-minute cached startup should not be performed live.
+The old 53.84-second automated runtime left enough room for wallet inspection.
+Do not assume the same timing for the new two-leg path until it is rehearsed.
+Starting Quickstart from a stopped stack should still happen before a meeting,
+not live during the presentation.
 
 ## Scope Notes
 
 - Docker state persisted from earlier runs, so starting balances were not zero.
 - The rehearsal used LocalNet shared-secret authentication and faucet-funded
   Canton Coin.
-- Delivery remains custodian evidence rather than a tokenized asset leg.
+- This run predates the tokenized private-credit delivery leg.
 - A clean-machine or clean-volume rehearsal remains outstanding.
+- The current `CompleteTokenizedDvP` runner cannot be rehearsed until Docker
+  Desktop WSL integration is restored in this shell.

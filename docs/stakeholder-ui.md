@@ -1,38 +1,35 @@
 # Stakeholder UI
 
-The `app/` directory is the V3 stakeholder slice. It connects a role-based
-browser interface to the real Quickstart LocalNet JSON Ledger APIs.
+The `app/` directory is the V3 presentation slice. Its role-based browser calls
+a local backend that translates actions to Quickstart JSON Ledger, wallet, and
+registry APIs. The browser never receives participant or wallet credentials.
 
-## Current Slice
+## Presented Flow
 
-The current workflow supports:
+1. Verifier creates `EligibilityAttestation`.
+2. Issuer creates `AssetOffer`.
+3. Investor accepts, producing `CompliancePending`.
+4. Verifier approves compliance, producing `PurchaseAgreement`.
+5. Issuer proposes the two-leg settlement.
+6. Verifier checks both transfer legs and creates `DeliveryApprovalPending`.
+7. Custodian reserves note units in `PrivateCreditAllocation`.
+8. Investor accepts the authorized request.
+9. The standard wallet discovers `TokenizedPaymentRequest` and reserves Canton
+   Coin in a standard allocation.
+10. Issuer executes `CompleteTokenizedDvP` with Canton Coin registry context.
+11. Canton consumes the cash allocation, asset allocation, request, and
+    agreement atomically; it creates the investor holding and DvP receipt.
+12. Auditor inspects the final receipt and its allocation/holding references.
 
-1. Verifier creates `EligibilityAttestation` as the LocalNet provider party.
-2. Issuer creates `AssetOffer` with units, payment, and deadlines.
-3. Investor exercises `AcceptOffer` through the app-user participant.
-4. Verifier exercises `ApproveCompliance` through the provider participant.
-5. The timeline advances to `PurchaseAgreement`.
-6. Issuer proposes payment, verifier approves it, and investor accepts it.
-7. The standard wallet discovers the resulting `TokenizedPaymentRequest`.
-8. Investor allocates the exact payment leg through the standard wallet API.
-9. Issuer executes `CompleteTokenizedPayment` with registry context and
-   disclosures.
-10. Canton transfers the coin, archives the request, agreement, and allocation,
-    and creates `PaymentPrepared` atomically.
-11. The inspector retains every contract state and shows the immediate wallet
-    balance evidence alongside fresh Ledger API queries.
-12. Custodian records a delivery reference and creates `ReadyToSettle`.
-13. Issuer finalizes settlement after Daml revalidates eligibility and the
-    deadline, creating an auditor-visible `SettlementReceipt`.
+The inspector keeps created and archived contracts in separate tabs. Cash and
+Asset show the two consumed allocations, Holding shows investor ownership, and
+Receipt shows the settlement reference, both allocation IDs, final holding ID,
+eligibility evidence, timestamp, and supporting wallet balance snapshots.
 
-Custodian and auditor views remain read-only until their corresponding ledger
-transitions are implemented.
+## Backend Boundary
 
-## Boundary
+The current DvP routes are:
 
-The browser calls only the local backend:
-
-- `GET /api/health`
 - `POST /api/attestations`
 - `GET /api/attestations/:contractId`
 - `POST /api/offers`
@@ -44,59 +41,57 @@ The browser calls only the local backend:
 - `POST /api/payment-proposals`
 - `GET /api/payment-proposals/:contractId`
 - `POST /api/payment-proposals/:contractId/approve`
+- `GET /api/delivery-approvals/:contractId`
+- `POST /api/delivery-approvals/:contractId/approve`
 - `GET /api/approved-payments/:contractId`
 - `POST /api/approved-payments/:contractId/accept`
 - `GET /api/payment-requests/:contractId`
 - `POST /api/payment-requests/:contractId/allocate`
 - `POST /api/payment-requests/:contractId/complete`
 - `GET /api/allocations/:contractId`
-- `GET /api/payment-prepared/:contractId`
-- `POST /api/payment-prepared/:contractId/confirm-delivery`
-- `GET /api/ready-to-settle/:contractId`
-- `POST /api/ready-to-settle/:contractId/finalize`
+- `GET /api/delivery-allocations/:contractId`
+- `GET /api/asset-holdings/:contractId`
 - `GET /api/receipts/:contractId`
 
-The backend retrieves participant context from the Quickstart onboarding
-container. Issuer and verifier commands use the provider Ledger API on
-`127.0.0.1:3975`; investor commands use the app-user Ledger API on
-`127.0.0.1:2975`. Allocation uses the investor validator, while execution gets
-the registry context inside the onboarding container. Participant, wallet, and
-registry data are never returned directly to the browser. This is an
-appropriate LocalNet demo boundary, not a production identity design.
+V1 prepared-payment routes remain in the backend for compatibility and learning
+tests, but the browser does not use them.
 
-## Run
+Issuer, verifier, custodian, and auditor commands use the provider Ledger API on
+`127.0.0.1:3975`. Investor commands use the app-user Ledger API on
+`127.0.0.1:2975`. The wallet operation uses the investor validator, and DvP
+completion gets Canton Coin choice context inside the onboarding container.
+This is an appropriate LocalNet demo boundary, not a production identity
+design.
 
-Build the Daml packages and start Quickstart as described in `docs/runbook.md`.
-Upload the model DAR by running the LocalNet demo runner at least once, then:
+## Run And Test
+
+Build the DARs and start Quickstart as described in `docs/runbook.md`, then:
 
 ```bash
 npm install
 npm run app
 ```
 
-Open `http://127.0.0.1:4173` and follow the Verifier, Issuer, and Investor
-actions shown for the current state.
-
-## Tests
+Open `http://127.0.0.1:4173` and follow the enabled action for each role.
 
 ```bash
 npm run test:app
 npm run test:ui
 ```
 
-The Node suite verifies input validation, provider/investor command authority,
-JSON encoding, and created/archived event normalization. Playwright verifies
-the role interactions, state progression, contract tabs, and desktop/mobile
-layout.
+The Node suite verifies command authority, standard allocation mapping, registry
+context, atomic result evidence, and legacy V1 compatibility. Playwright covers
+the complete DvP role flow, contract tabs, LocalNet reset handling, and mobile
+overflow.
 
 ## Next Extensions
 
 - Add visible negative-path controls for withdrawn or expired eligibility.
-- Preserve selected balance evidence across a backend restart without treating
-  it as ledger state.
-- Replace the delivery evidence reference with a second token-standard
-  allocation when the model advances from payment-versus-workflow to full DvP.
+- Preserve optional wallet balance snapshots across a backend restart without
+  treating them as ledger state.
+- Replace shared-secret LocalNet identities with a production-ready identity and
+  authorization design.
+- Add a secondary-transfer path for already issued private-credit holdings.
 
-Every visible state change must continue to come
-from a transaction response or a fresh contract query; the frontend must not
-advance the timeline optimistically.
+Every visible state change must continue to come from a transaction response or
+a fresh contract query. The frontend must not advance optimistically.

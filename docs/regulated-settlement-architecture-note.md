@@ -8,6 +8,10 @@ V1 proves that Daml can enforce a private regulated-settlement workflow across
 an issuer, investor, verifier, custodian, and auditor. It models payment and
 delivery evidence but does not claim to transfer token-standard assets yet.
 
+This document intentionally describes the retained V1 learning model. The
+presented V3 path now uses the two-allocation integration described in
+`tokenized-payment-architecture.md`.
+
 ## Parties
 
 - `issuer` creates an offer and co-finalizes settlement.
@@ -74,8 +78,8 @@ ledger time to be strictly before `settleBefore`.
 
 ## V1 Boundary
 
-`paymentRef` and `deliveryRef` are evidence identifiers in the V1 path. The first
-V2 slice now backs `paymentRef` with execution of an exact Canton Token Standard
-`Allocation`; see `tokenized-payment-architecture.md`. Delivery remains an
-evidence reference, so the accurate description is still "compliance-gated
-settlement with token-standard payment," not completed DvP.
+`paymentRef` and `deliveryRef` remain evidence identifiers in V1. They are useful
+for learning staged authority and as a fallback workflow, but they are not the
+presented DvP implementation. V2 replaces both references with exact Token
+Standard allocation legs and executes them atomically; see
+`tokenized-payment-architecture.md`.

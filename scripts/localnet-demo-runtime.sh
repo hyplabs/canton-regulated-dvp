@@ -129,10 +129,24 @@ assert_contract_active() {
       eventFormat:{filtersByParty:{($party):{}},verbose:false}}')
   events=$(http_json POST "$ledger/v2/events/events-by-contract-id" "$token" "$body")
   if ! jq -e '.created != null and .archived == null' <<<"$events" >/dev/null; then
-    echo "$label was not active after the rejected transaction." >&2
+    echo "$label is not active." >&2
     return 1
   fi
-  detail "$label remains active"
+  detail "$label is active"
+}
+
+assert_contract_archived() {
+  local ledger=$1 token=$2 party=$3 cid=$4 label=$5
+  local body events
+  body=$(jq -nc --arg cid "$cid" --arg party "$party" \
+    '{contractId:$cid,
+      eventFormat:{filtersByParty:{($party):{}},verbose:false}}')
+  events=$(http_json POST "$ledger/v2/events/events-by-contract-id" "$token" "$body")
+  if ! jq -e '.created != null and .archived != null' <<<"$events" >/dev/null; then
+    echo "$label is not archived." >&2
+    return 1
+  fi
+  detail "$label is archived"
 }
 
 balance() {
@@ -402,6 +416,19 @@ settled_at=$(jq -r \
     .createArgument.settledAt' <<<"$response")
 echo " 10/10 Auditor-visible DvP receipt created"
 detail "TokenizedSettlementReceipt: $receipt_cid"
+
+assert_contract_archived "$user_ledger" "$user_token" "$user_party" \
+  "$request_cid" 'Payment request'
+assert_contract_archived "$provider_ledger" "$provider_token" "$provider_party" \
+  "$agreement_cid" 'Purchase agreement'
+assert_contract_archived "$user_ledger" "$user_token" "$user_party" \
+  "$allocation_cid" 'Canton Coin allocation'
+assert_contract_archived "$provider_ledger" "$provider_token" "$provider_party" \
+  "$delivery_allocation_cid" 'Private-credit allocation'
+assert_contract_active "$provider_ledger" "$provider_token" "$provider_party" \
+  "$asset_holding_cid" 'Investor private-credit holding'
+assert_contract_active "$provider_ledger" "$provider_token" "$provider_party" \
+  "$receipt_cid" 'DvP receipt'
 
 sleep 1
 user_balance_after=$(balance "$user_validator" "$user_wallet_token")

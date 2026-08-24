@@ -1,92 +1,73 @@
 # LocalNet Integration Milestone
 
-Date: 2026-08-21
+Updated: 2026-08-24
 
-## Readiness Snapshot
+## Topology
 
-| Prerequisite | Local status |
-| --- | --- |
-| Docker client | `29.6.1`, meets Quickstart minimum `27.0.0` |
-| Docker Compose | `5.3.0`, meets Quickstart minimum `2.27.0` |
-| Docker daemon | Reachable through Docker Desktop WSL integration |
-| Memory | 7.7 GiB visible, effectively the 8 GB recommended minimum |
-| Free disk | About 819 GiB |
-| Daml SDK | `3.5.2`, aligned with Quickstart |
+Quickstart provides separate app-provider and app-user participants. The
+provider party fills issuer, verifier, custodian, and auditor roles; the user
+party is the investor. This keeps wallet funding and completion demonstrable
+without claiming five independently operated participants.
 
-Quickstart is configured with shared-secret authentication, observability off,
-and test mode on. Canton, Splice, PostgreSQL, wallet UIs, and onboarding all
-reached healthy status.
-
-The minimal topology has two application parties. The app-provider party fills
-the issuer, verifier, custodian, and auditor roles; the app-user party is the
-investor. This keeps wallet funding and completion demonstrable without claiming
-that the run proves five independently operated participants.
+The earlier one-leg Canton Coin runner was verified twice on this topology. The
+current code extends that path to full DvP; its post-change LocalNet rerun is
+pending because Docker Desktop WSL integration is not currently exposed to this
+shell.
 
 ## Runtime Path
 
-1. Run `make check-docker` in `../resources/cn-quickstart/quickstart`.
-2. Run `make setup`; select LocalNet, shared-secret authentication,
-   observability off, and test mode on.
-3. Start Quickstart with `make start`.
-4. Run `./scripts/test.sh` here to build and test all four Daml packages.
-5. Run `./scripts/localnet-demo.sh`.
+1. Start `../resources/cn-quickstart/quickstart` with `make start`.
+2. Run `./scripts/test.sh` to build and test all four Daml packages.
+3. Run `./scripts/localnet-demo.sh --show-negative`.
 
-The demo runner uploads the latest production DARs to both participants, obtains
-the Quickstart parties and Canton Coin admin, and submits each business action
-through the owning participant's JSON Ledger API. The investor wallet discovers
-the resulting `AllocationRequest`, funds it with its `/v0/allocations` endpoint,
-and returns a real `AmuletAllocation` contract.
+The runner uploads both production DARs to both participants and obtains the
+Quickstart parties and Canton Coin instrument admin. It then:
 
-The runner then retrieves execute-transfer context and disclosures from the
-registry off-ledger API, submits `CompleteTokenizedPayment`, and completes the
-delivery and receipt states. It finishes by checking both wallet balances and
-proving the allocation request and allocation were consumed.
+1. Creates eligibility, offer, compliance, and purchase-agreement contracts.
+2. Accumulates issuer and verifier authority for the two-leg proposal.
+3. Has the custodian reserve private-credit units in a production
+   `PrivateCreditAllocation`.
+4. Has the investor accept the request.
+5. Waits for the standard wallet to discover `AllocationRequest`.
+6. Uses the wallet API to create a real Canton Coin allocation for `payment`.
+7. Gets Canton Coin execute-transfer context and disclosures from the registry.
+8. Exercises `CompleteTokenizedDvP`, passing registry context for cash and empty
+   standard context for the private-credit allocation.
+9. Queries both allocations as archived, the investor holding as active, and the
+   DvP receipt as active.
+10. Compares investor and provider Canton Coin balances.
 
-Stop the stack from the Quickstart directory with:
+`--show-negative` first submits completion as the investor. Follow-up ledger
+queries require the request, agreement, cash allocation, and asset allocation to
+remain active before the authorized transaction proceeds.
 
-```bash
-make stop
-```
+## Standard Boundary
 
-Use `make clean` only when a fresh LocalNet ledger and wallet state are desired.
+The wallet recognizes the app contract through `AllocationRequest` rather than
+an app-specific template. The runner uses the wallet's `/v0/allocations`
+endpoint for cash and the registry's transfer-context endpoint for execution.
+No token-specific transfer command is embedded in the business workflow.
 
-## Verified Result
+The private-credit side also implements the standard `Allocation` and `Holding`
+interfaces, but it is a deliberately focused app-owned registry for primary
+issuance. It does not need external choice context.
 
-Two consecutive runs completed successfully. On the repeatability run:
+## Verification Status
 
-- Investor balance changed from `19990.0000000000` to `19980.0000000000`
-  Amulet.
-- Provider balance changed from `10.0000000000` to `20.0000000000` Amulet.
-- The wallet reported zero active instances of that allocation request and
-  allocation after settlement.
-- Canton created a final `SettlementReceipt` retaining the payment and delivery
-  references.
+- [x] Both production model DARs build and can be uploaded independently.
+- [x] The standard wallet previously discovered the custom request on LocalNet.
+- [x] A real Canton Coin allocation previously executed with registry context.
+- [x] The current Daml suite proves matching two-leg execution.
+- [x] The current Daml suite proves delivery failure rolls back payment.
+- [x] The runner submits both allocation IDs to `CompleteTokenizedDvP`.
+- [x] Node and browser tests cover both allocation and holding evidence.
+- [ ] Rerun the current two-leg runner against Quickstart LocalNet.
+- [ ] Repeat mismatch and expiry failures against the real Canton Coin registry.
 
-## Code Reuse From Quickstart
+## Historical Runtime Evidence
 
-The reference flow already demonstrates each off-ledger operation:
-
-- `TokenStandardProxy.getRegistryAdminId()` discovers the instrument admin.
-- `TokenStandardProxy.getAllocationTransferContext()` retrieves registry choice
-  context and disclosed contracts.
-- `DamlRepository` joins an allocation to a request by settlement reference.
-- `LicenseApiImpl.completeLicenseRenewal()` builds `ExtraArgs` and submits the
-  business choice with disclosures.
-
-Our backend adapter should follow those patterns and substitute generated Java
-bindings for `TokenizedPaymentRequest` and `CompleteTokenizedPayment`. It should
-not invent a token-specific transfer command.
-
-## Done Criteria
-
-- [x] Both POC model DARs are visible on both application participants.
-- [x] The wallet discovers the request without app-specific request parsing.
-- [x] A real Canton Coin allocation is created for the settlement reference.
-- [x] `CompleteTokenizedPayment` succeeds with registry-provided context.
-- [x] Balances and active state prove the transfer and workflow transition.
-- [ ] The inactive, mismatched, and expired allocation cases are repeated against
-  the real registry.
-
-The second delivery allocation is a separate milestone. Until both legs execute
-in one transaction, the demo remains token-standard payment plus regulated
-delivery workflow, not full DvP.
+On 2026-08-21, before the asset leg was tokenized, two consecutive payment runs
+completed. On the second run the investor moved from `19990.0000000000` to
+`19980.0000000000` Amulet and the provider moved from `10.0000000000` to
+`20.0000000000` Amulet. That evidence supports the unchanged wallet and registry
+integration, but it is not presented as proof of the new two-leg code.

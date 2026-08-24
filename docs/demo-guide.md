@@ -1,48 +1,52 @@
-# Regulated Settlement Demo Guide
+# Regulated DvP Demo Guide
 
-This is the presenter entry point for the Canton regulated-settlement POC. The
-recommended walkthrough takes about five minutes and uses a real Canton Coin
-allocation on Quickstart LocalNet.
+This is the presenter entry point. The recommended walkthrough takes about five
+minutes and settles a private-credit note against real Canton Coin on Quickstart
+LocalNet.
 
 ## The Story
 
-A private-credit issuer offers 1,000 units of a restricted note to an
-institutional investor. The investor must have an active eligibility
-attestation, compliance must approve the purchase, and a custodian must confirm
-delivery before an auditor-visible receipt can be created.
+A lender issues 1,000 units of a restricted private-credit note to an
+institutional investor for 10 Canton Coin. The investor must be eligible, a
+verifier must approve the purchase, and a custodian must reserve the note.
 
-The investor's standard Canton wallet discovers the app's payment request and
-allocates 10 Canton Coin. The registry transfer and the regulated workflow
-advance in one atomic Daml transaction.
+Before settlement, the ledger contains two locked obligations:
+
+- the investor's standard wallet allocation for 10 Canton Coin;
+- the custodian's private-credit allocation for 1,000 note units.
+
+The issuer then exercises one Daml choice. Canton transfers both legs and emits
+one auditor-visible receipt. If either transfer fails, neither one commits.
 
 ## What This Demonstrates
 
-- Need-to-know visibility rather than broadcasting every contract globally.
-- Business authorization enforced by Daml, not by disabled UI buttons.
-- Active compliance evidence checked at acceptance and settlement.
-- A custom application contract discovered through the Canton Token Standard.
-- Real wallet balances and registry-provided allocation execution.
-- Atomic failure: a rejected command leaves every input contract active.
+- Need-to-know contract visibility instead of global broadcast.
+- Business authority enforced by Daml, not UI permissions.
+- Eligibility rechecked against active ledger state at settlement.
+- A custom request discovered through the Canton Token Standard.
+- A real Canton Coin wallet allocation and registry transfer.
+- An app-owned asset that implements standard `Holding` and `Allocation`.
+- Atomic rollback across payment and delivery child exercises.
 
-## Demo Roles
+## Roles
 
-| Business role | Responsibility | Minimal LocalNet party |
+| Role | Responsibility | Minimal LocalNet party |
 | --- | --- | --- |
-| Issuer | Offers the private-credit note and receives payment | App provider |
-| Investor | Accepts the offer and pays | App user |
-| Verifier | Attests eligibility and approves compliance | App provider |
-| Custodian | Confirms delivery evidence | App provider |
-| Auditor | Sees the final receipt | App provider |
+| Issuer | Offers the note, receives cash, executes DvP | App provider |
+| Investor | Accepts the note and reserves Canton Coin | App user |
+| Verifier | Attests eligibility and approves settlement | App provider |
+| Custodian | Tokenizes and reserves the note units | App provider |
+| Auditor | Reads the completed DvP receipt | App provider |
 
-The Daml tests use five distinct parties. Quickstart's minimal two-party topology
-combines the operational roles under the provider for a compact demonstration.
+The Daml tests use five distinct parties. Quickstart combines provider-side
+roles for a compact two-participant demonstration.
 
 ## Before The Meeting
 
-From the POC repository, build and test all packages:
-
 ```bash
 ./scripts/test.sh
+npm run test:app
+npm run test:ui
 ```
 
 Start Quickstart from `../resources/cn-quickstart/quickstart`:
@@ -59,174 +63,131 @@ Confirm `canton`, `splice`, and `splice-onboarding` are healthy:
 docker ps --format '{{.Names}}  {{.Status}}'
 ```
 
-Open these tabs before presenting:
+Run one noninteractive smoke test before presenting:
 
-- Stakeholder UI: `http://127.0.0.1:4173`
+```bash
+./scripts/localnet-demo.sh --show-negative
+```
+
+Then start the browser app:
+
+```bash
+npm run app
+```
+
+Open:
+
+- Stakeholder app: `http://127.0.0.1:4173`
 - Investor allocations: `http://wallet.localhost:2000/allocations`
 - Investor wallet: `http://wallet.localhost:2000`
 - Provider wallet: `http://wallet.localhost:3000`
-- [Regulated.daml](../daml/model/daml/Settlement/Regulated.daml)
+
+Keep these source files ready:
+
 - [TokenizedPayment.daml](../daml/tokenized-model/daml/Settlement/TokenizedPayment.daml)
+- [PrivateCreditToken.daml](../daml/tokenized-model/daml/Settlement/PrivateCreditToken.daml)
+- [TokenizedPaymentTest.daml](../daml/tokenized-tests/daml/Settlement/TokenizedPaymentTest.daml)
 
 ## Browser Walkthrough
 
-Start the stakeholder app with `npm run app`, open
-`http://127.0.0.1:4173`, and use the role rail to perform these actions:
+Use the role rail to perform the only enabled action at each state:
 
-1. Verifier issues eligibility.
-2. Issuer creates the private-credit offer.
-3. Investor accepts it.
-4. Verifier approves compliance.
-5. Issuer proposes payment.
-6. Verifier approves the payment request.
-7. Investor accepts the request and allocates 10 Canton Coin.
-8. Issuer executes the atomic payment.
-9. Custodian confirms the delivery reference.
-10. Issuer finalizes settlement, then switch to Auditor.
+1. Verifier: **Issue attestation**.
+2. Issuer: **Create asset offer**.
+3. Investor: **Accept offer**.
+4. Verifier: **Approve compliance**.
+5. Issuer: **Create payment proposal**.
+6. Verifier: **Approve payment request**.
+7. Custodian: **Reserve private-credit units**.
+8. Investor: **Accept payment request**, then **Allocate Canton Coin**.
+9. Issuer: **Execute atomic DvP**.
+10. Auditor: inspect the completed state.
 
-At `SettlementReceipt`, show all six green timeline steps and the inspector
-tabs. The Request, Agreement, Allocation, Prepared, and Ready tabs are archived;
-Receipt is active with payment, delivery, eligibility, auditor, and timestamp
-evidence. This is the recommended visual path. The terminal walkthrough below
-adds the wrong-party rejection and compact balance output.
+At 5 of 6, show both active allocation tabs:
 
-## Full Workflow Command
+- **Cash**: 10 Amulet, investor to issuer, leg `payment`.
+- **Asset**: 1,000 note units, issuer to investor, leg `delivery`.
 
-Run from the POC repository in a terminal visible to the audience:
+After execution, Cash and Asset are archived, Holding is active and owned by the
+investor, and Receipt references both allocations and the holding. The wallet
+balance snapshot is supporting evidence; ledger contract state is authoritative.
+
+## Terminal Walkthrough
+
+Run:
 
 ```bash
 ./scripts/localnet-demo.sh --interactive --show-negative
 ```
 
-Add `--verbose` for a technical audience that wants contract IDs and the full
-authorization error. Run without options for a fully automated smoke test.
+`--interactive` pauses after wallet discovery so you can show the standard
+allocation request. Do not click Accept in the wallet; return to the terminal
+and press Enter so the runner stays repeatable. Add `--verbose` for contract IDs
+and complete rejection details.
 
-## Five-Minute Walkthrough
+### Explain The Rejection
 
-### 0:00 - Set The Business Context
+The investor attempts the issuer-and-verifier-controlled
+`CompleteTokenizedDvP` choice. Canton rejects it with
+`DAML_AUTHORIZATION_ERROR`. The runner then queries the request, agreement, cash
+allocation, and asset allocation and requires all four to remain active.
 
 Say:
 
-> A lender is selling a restricted private-credit note. Payment must not settle
-> unless the intended investor is eligible, compliance approves this purchase,
-> and every amount and deadline matches.
+> Canton rejected the whole transaction before any partial settlement became
+> ledger state. Both locked legs are still available for the authorized attempt.
 
-Explain that the demo uses 1,000 note units and a 10 Canton Coin payment.
+### Explain The Success
 
-### 0:45 - Show The Contract Model
+The provider submits the authorized choice with Canton Coin registry context.
+In one transaction:
 
-In `Regulated.daml`, point to:
+- the cash allocation transfers Canton Coin to the issuer;
+- the asset allocation creates a private-credit holding for the investor;
+- both allocations, the request, and the agreement are consumed;
+- the DvP receipt is created for the auditor.
 
-- `EligibilityAttestation` for scoped, expiring compliance evidence.
-- `AcceptOffer` and `ApproveCompliance` for investor and verifier authority.
-- `FinalizeSettlement` for the final compliance recheck.
-
-In `TokenizedPayment.daml`, point to:
-
-- `interface instance AllocationRequest` for standard wallet discovery.
-- `CompleteTokenizedPayment` for exact allocation validation and execution.
-
-Avoid reading the whole file. The important message is that each state names who
-can see it, who signs it, and who may advance it.
-
-### 1:30 - Start The Workflow
-
-Run the recommended command. The first six lines show:
-
-1. Eligibility attested.
-2. Private-credit units offered.
-3. Investor accepted.
-4. Compliance approved.
-5. Payment request authorized.
-6. Standard wallet discovered the custom request.
-
-This is the interoperability moment: the wallet was not programmed specifically
-for `TokenizedPaymentRequest`; it recognizes the standard interface.
-
-### 2:30 - Show The Wallet
-
-The runner pauses after discovery. Open the investor allocations tab and show:
-
-- Sender and receiver.
-- 10 Amulet amount (`Amulet` is Canton Coin's API instrument name).
-- Settlement deadline.
-- Private-credit metadata and settlement reference.
-
-Do not click **Accept**. Return to the terminal and press Enter; the runner calls
-the same wallet allocation operation so the walkthrough remains repeatable.
-
-### 3:15 - Show Ledger-Enforced Rejection
-
-The `--show-negative` mode has the investor attempt the provider-controlled
-completion choice. Canton returns `DAML_AUTHORIZATION_ERROR`.
-
-The runner then queries the ledger and proves that the payment request, purchase
-agreement, and Canton Coin allocation are all still active. Say:
-
-> The application did not catch this after the fact. Canton rejected the entire
-> transaction, so no partial settlement occurred.
-
-### 4:00 - Complete Settlement
-
-The provider executes the correctly authorized transaction. In one transaction:
-
-- The Canton Coin allocation transfers to the provider.
-- The purchase agreement and payment request are consumed.
-- `PaymentPrepared` is created.
-
-The custodian evidence is then confirmed and the final receipt is created.
-
-### 4:40 - Close With Evidence And Scope
-
-Show the final balance lines. The investor decreases by 10 Amulet and the
-provider increases by 10. The runner also verifies that the request and
-allocation are consumed.
-
-Close with:
-
-> This proves regulated payment-versus-workflow with real Canton Coin. The next
-> architectural milestone is tokenizing the note delivery leg so both assets
-> execute as full delivery-versus-payment.
+Point to `testBrokenDeliveryRollsBackPayment`: it makes the payment child choice
+succeed and the asset child choice fail. The post-failure queries prove that
+Daml rolled the payment effects back too.
 
 ## Expected Output
 
-The balance starting values vary because LocalNet state persists, but a
-successful run ends with this shape:
+Starting balances vary because LocalNet state persists. A successful run ends
+with this shape:
 
 ```text
-Settlement complete
+Atomic DvP settlement complete
   Private-credit units:  1000
   Canton Coin payment:   10.0 Amulet
   Investor balance:      <before> -> <before minus 10> Amulet
   Provider balance:      <before> -> <before plus 10> Amulet
-  Request and allocation: consumed
+  Settled at:            <ledger time>
+  Investor asset holding: <contract ID>
+  Request and allocations: consumed
 ```
 
-With `--show-negative`, the output must also include:
+With `--show-negative` it also includes:
 
 ```text
 Canton rejected the investor: DAML_AUTHORIZATION_ERROR
-Rejection was atomic; request, agreement, and allocation remain active
+Rejection was atomic; request, agreement, and both allocations remain active
 ```
 
 ## Recovery
 
-- Before allocation, `Ctrl+C` leaves no locked Canton Coin. Start a new run.
-- After allocation, use the investor wallet's Allocations page to withdraw an
-  allocation if the script cannot continue.
-- If a service is still warming up, wait for `canton` and `splice` to report
-  healthy and rerun the command.
-- Stop LocalNet with `make stop` from the Quickstart directory.
-- `make clean` removes persisted LocalNet state and should be reserved for an
-  intentional reset.
+- Before cash allocation, `Ctrl+C` leaves no locked Canton Coin; start a new run.
+- After allocation, withdraw it from the investor wallet if the runner cannot
+  continue. The private-credit allocation also exposes standard withdraw/cancel
+  behavior, though the current runner does not automate recovery.
+- If services are warming up, wait for `canton` and `splice` to become healthy.
+- Stop LocalNet with `make stop`; use `make clean` only for an intentional reset.
 
 ## Honest Limitations
 
-- Delivery is custodian evidence, not a tokenized note allocation, so this is
-  not yet full DvP.
-- The minimal LocalNet run has two application parties and combines provider-side
-  roles.
-- Shared-secret authentication and the wallet faucet are LocalNet conveniences,
-  not production security choices.
-- The test suite covers more party separation and failure cases than this short
-  presentation path.
+- The private-credit token is a focused primary-issuance implementation, not a
+  production registry with splits, merges, fees, or secondary transfers.
+- Provider-side business roles share one LocalNet party.
+- Shared-secret auth and faucet-funded Canton Coin are LocalNet conveniences.
+- The new full-DvP runner must be rehearsed again on Quickstart before a live
+  presentation; the current shell does not expose Docker Desktop to WSL.

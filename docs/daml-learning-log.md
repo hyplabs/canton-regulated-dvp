@@ -1,8 +1,16 @@
 # Daml Learning Guide For This POC
 
-This guide teaches Daml through the code in
-`daml/model/daml/Settlement/Regulated.daml` and the executable examples in
-`daml/tests/daml/Settlement/RegulatedTest.daml`.
+This guide teaches Daml through the retained V1 workflow and the completed DvP
+integration:
+
+- `daml/model/daml/Settlement/Regulated.daml`
+- `daml/tokenized-model/daml/Settlement/TokenizedPayment.daml`
+- `daml/tokenized-model/daml/Settlement/PrivateCreditToken.daml`
+- both executable Daml Script test suites
+
+Sections 1-9 explain the deliberately simple V1 state machine. Later sections
+show how that model evolves into two Token Standard allocation legs without
+erasing the earlier learning steps.
 
 ## 1. Start With Parties And Authority
 
@@ -209,41 +217,48 @@ The interface view is the common data projection exposed to that wallet:
 ```daml
 AllocationRequestView with
   settlement = SettlementInfo with ...
-  transferLegs = TextMap.fromList [(paymentLegId, paymentLeg)]
+  transferLegs = TextMap.fromList
+    [ (paymentLegId, paymentLeg)
+    , (deliveryLegId, deliveryLeg)
+    ]
   meta
 ```
 
-Our request has one leg: investor sends the configured payment amount to the
-issuer. `TextMap` gives each leg a stable textual ID so allocations can identify
-which part of a multi-leg settlement they fund.
+Our request has two legs: the investor sends payment to the issuer, and the
+issuer sends note units to the investor. `TextMap` gives each leg a stable
+textual ID so independently created allocations can identify which obligation
+they fund while sharing one settlement reference.
 
 ## 12. Interface Contract IDs
 
-The completion choice accepts this type:
+The completion choice stores or accepts two values of this type:
 
 ```daml
 allocationCid : ContractId Allocation
 ```
 
 That is an interface contract ID, not the ID of one concrete token template.
-Any active contract implementing `Allocation` can be supplied. The model reads
-it through the interface:
+The private-credit allocation ID is stored in the request; the Canton Coin
+allocation ID arrives when the wallet has funded it. Any active contract
+implementing `Allocation` can fill either slot. The model reads each through the
+interface:
 
 ```daml
 allocation <- fetch @Allocation allocationCid
 let allocationView = view @Allocation allocation
 ```
 
-Tests create a concrete `MockAllocation` and convert its ID with
-`toInterfaceContractId`. A LocalNet integration will pass the ID of a real
-registry allocation through exactly the same choice argument.
+Tests create a concrete payment `MockAllocation` and convert its ID with
+`toInterfaceContractId`. The production custodian helper returns the asset
+allocation in the same interface form. LocalNet passes a real Canton Coin
+registry allocation through the payment argument.
 
 ## 13. Never Trust A Contract ID By Type Alone
 
 The interface type proves that the contract supports allocation behavior. It
-does not prove that it funds this purchase. The model therefore compares:
+does not prove that it funds this purchase. For each leg, the model compares:
 
-- `transferLegId` against the expected `payment` leg ID.
+- `transferLegId` against the expected `payment` or `delivery` leg ID.
 - The complete `TransferLeg`, including sender, receiver, amount, and instrument.
 - The complete `SettlementInfo`, including request ID, agreement contract ID,
   and both deadlines.
@@ -254,24 +269,27 @@ Only after all three match does it execute:
 _ <- exercise allocationCid (Allocation_ExecuteTransfer extraArgs)
 ```
 
-`testMismatchedAllocationCannotAdvanceWorkflow` changes the amount by one unit.
+`testMismatchedPaymentCannotSettle` changes the amount by one unit.
 The interface type is still correct, but the business identity is wrong, so the
 transaction fails.
 
 ## 14. One Transaction Composes Multiple Contracts
 
-`CompleteTokenizedPayment` is `postconsuming`. On success it consumes the
+`CompleteTokenizedDvP` is `postconsuming`. On success it consumes the
 request after its body has:
 
 1. Fetched and checked the agreement and eligibility attestation.
-2. Exercised the allocation's transfer choice.
-3. Archived the V1 `PurchaseAgreement`.
-4. Created `PaymentPrepared`.
+2. Validated both allocation views.
+3. Exercised the payment allocation.
+4. Exercised the delivery allocation.
+5. Archived the V1 `PurchaseAgreement`.
+6. Created `TokenizedSettlementReceipt` with the delivery result's holding IDs.
 
 Daml transactions are atomic. If allocation execution or any validation fails,
-none of those effects commit. The mismatch test queries the allocation,
-agreement, and request afterward and proves all three remain active. It also
-proves that no mock transfer receipt was created.
+none of those effects commit. The strongest test lets the payment child choice
+run and then deliberately fails delivery. It queries both allocations,
+agreement, and request afterward and proves they remain active. It also proves
+that no mock payment receipt survived.
 
 This is stronger than application code that performs a transfer and then makes
 a second API call to update workflow state. There is no committed intermediate
@@ -279,18 +297,19 @@ state where only one side happened.
 
 ## 15. Authority Can Be Granted In Advance
 
-The tokenized request is signed by issuer, investor, and verifier. Its completion
-choice is controlled by issuer and verifier:
+The tokenized request is signed by issuer, investor, verifier, and custodian.
+Its completion choice is controlled by issuer and verifier:
 
 ```daml
-signatory terms.issuer, terms.investor, terms.verifier
+signatory terms.issuer, terms.investor, terms.verifier, terms.custodian
 controller terms.issuer, terms.verifier
 ```
 
-The investor authorizes the request when it is created. That parent authority is
-available to the direct child allocation exercise, whose standard controllers
-include sender, receiver, and executor. The verifier remains a required
-controller for the app-level compliance gate.
+The investor authorizes the request on acceptance; the custodian authorized the
+locked asset allocation in the preceding state. Parent authority is available
+to both direct child allocation exercises, whose standard controllers include
+sender, receiver, and executor. The verifier remains a required controller for
+the app-level compliance gate.
 
 The wrong-party test submits as the investor alone. It fails because prior
 authorization does not let the investor impersonate the issuer and verifier who
@@ -299,13 +318,15 @@ control completion.
 ## 16. Test Implementations Versus Real Registries
 
 `MockAllocation` is deliberately small: it implements the real standard
-interface, consumes itself on execution, and creates a receipt. It does not
-track balances, lock holdings, calculate fees, or represent a production token.
+interface for the payment leg, consumes itself on execution, and creates a test
+receipt. It does not track balances, lock holdings, calculate fees, or represent
+a production token.
 
-That distinction lets the tests answer one precise question: "Does our app
-integrate with any conforming allocation contract correctly?" The LocalNet
-runner answers the complementary question: "Can a real wallet and token
-registry fund and execute this request end to end?" Both now pass.
+The asset leg uses the production `PrivateCreditAllocation`, including its
+locked holding and resulting investor holding. This lets one test transaction
+compose two unrelated implementations of the same interface. The earlier
+payment-only LocalNet runner proved real wallet and registry execution; the
+updated two-leg runner still needs its post-change Quickstart rehearsal.
 
 The official comparison implementation is
 `../resources/cn-quickstart/quickstart/daml/licensing`, and the fuller DvP
@@ -324,10 +345,10 @@ example is in the sibling Quickstart token-standard test sources.
 
 ## 18. Multi-Party Tests Are Not Multi-Participant Workflows
 
-The first test fixture created `TokenizedPaymentRequest` with one script command:
+An early test fixture created `TokenizedPaymentRequest` with one script command:
 
 ```daml
-submit (actAs [issuer, investor, verifier]) do
+submit (actAs [issuer, investor, verifier, custodian]) do
   createCmd TokenizedPaymentRequest with ...
 ```
 
@@ -335,14 +356,16 @@ That is valid when one participant and user can act for every party. In the
 Quickstart topology, the issuer and investor are hosted by different
 participants, so neither participant may claim both parties in one command.
 
-The production model now accumulates authority over three ordinary actions:
+The production model accumulates authority over four ordinary actions:
 
 ```text
 TokenizedPaymentProposal             signatory issuer
   -> ApproveTokenizedPayment          controller verifier
-ApprovedTokenizedPayment             signatories issuer + verifier
+DeliveryApprovalPending              signatories issuer + verifier
+  -> ApprovePrivateCreditDelivery     controller custodian
+ApprovedTokenizedPayment             signatories issuer + verifier + custodian
   -> AcceptTokenizedPayment           controller investor
-TokenizedPaymentRequest              signatories issuer + verifier + investor
+TokenizedPaymentRequest              issuer + verifier + custodian + investor
 ```
 
 The signatories of each consumed parent authorize its direct consequences, and
@@ -376,9 +399,10 @@ execute-transfer context endpoint returns:
 
 `scripts/localnet-demo.sh` places the first value in `ExtraArgs.context` and the
 second in the Ledger API command envelope. Daml can then exercise the real
-allocation as a child of `CompleteTokenizedPayment`. The transfer, agreement
-archive, request consumption, and `PaymentPrepared` creation either all commit
-or all fail.
+payment allocation as a child of `CompleteTokenizedDvP`. The private-credit
+allocation is the second child exercise and needs only empty standard context.
+Both transfers, agreement archive, request consumption, investor holding, and
+DvP receipt either all commit or all fail.
 
 ## 21. A Browser Action Is Still A Daml Command
 
@@ -454,17 +478,19 @@ actual transaction result.
 
 ## 24. Standard Interfaces Decouple The Wallet From Our Template
 
-Payment authorization accumulates authority in three contracts:
+Settlement authorization accumulates authority in four contracts:
 
 ```text
 TokenizedPaymentProposal       issuer signatory
-ApprovedTokenizedPayment       issuer + verifier signatories
-TokenizedPaymentRequest        issuer + verifier + investor signatories
+DeliveryApprovalPending        issuer + verifier signatories
+ApprovedTokenizedPayment       issuer + verifier + custodian signatories
+TokenizedPaymentRequest        issuer + verifier + custodian + investor
 ```
 
-The provider submits the issuer proposal and verifier approval in minimal
-LocalNet; the app-user participant submits investor acceptance. Each transition
-reuses the parent-authority rule from the regulated workflow.
+The provider submits the issuer proposal, verifier approval, and custodian
+reservation in minimal LocalNet; the app-user participant submits investor
+acceptance. Each transition reuses the parent-authority rule from the regulated
+workflow.
 
 The final template implements `AllocationRequest`, so the wallet discovers it
 through the standard view rather than by importing or parsing
@@ -489,11 +515,11 @@ contract ID and lifecycle, so the UI queries it through the investor's Ledger
 API and displays it separately from `TokenizedPaymentRequest`. At this point the
 coin is reserved, not transferred. The next issuer action must supply the
 registry's choice context and disclosed contracts to execute the allocation
-inside `CompleteTokenizedPayment`.
+inside `CompleteTokenizedDvP` alongside the asset allocation.
 
 ## 26. Disclosed Contracts Complete The Transaction Context
 
-`CompleteTokenizedPayment` needs more than the allocation contract ID. Canton
+`CompleteTokenizedDvP` needs more than the payment allocation contract ID. Canton
 Coin execution depends on current registry contracts for rules, the open round,
 external-party configuration, and the locked holding. The backend requests that
 context from the registry immediately before submission.
@@ -507,38 +533,46 @@ The registry response has two distinct jobs:
   this transaction without first making them part of our application model.
 
 Our Daml choice still controls the business transaction. It validates the exact
-settlement and transfer-leg views, exercises the allocation, archives the
-purchase agreement, and creates `PaymentPrepared`. Canton commits every effect
-together. The UI re-queries all four contracts after submission and reports
-wallet snapshots as supporting evidence; those balances are not persisted as
-workflow truth.
+settlement and transfer-leg views for both allocations, exercises both,
+archives the purchase agreement, and creates `TokenizedSettlementReceipt`.
+Canton commits every effect together. The UI re-queries the consumed request,
+agreement, and allocations plus the active holding and receipt. Wallet snapshots
+are supporting evidence, not persisted workflow truth.
 
-## 27. Evidence References Advance The State Machine
+## 27. The Custodian Creates A Real Delivery Allocation
 
-`ConfirmDelivery` is a consuming choice on `PaymentPrepared`. Its controller is
-the custodian, and its `deliveryRef` argument must be non-empty. A successful
-exercise archives the paid state and creates `ReadyToSettle` with both the
-payment and delivery references.
+`ApprovePrivateCreditDelivery` does more than record an external reference. It
+constructs the expected `delivery` `AllocationSpecification` from the same
+standard request view used at completion, then calls:
 
-The reference is evidence metadata, not a token transfer. This keeps the POC's
-scope honest: Canton Coin is real, while note delivery is represented by the
-custodian's external-system reference. The UI asks the custodian for that value
-and then re-queries both contracts, so the 5-of-6 timeline state comes from the
-ledger transition rather than from the input field.
+```daml
+deliveryAllocationCid <- reservePrimaryIssuance
+  terms.custodian terms.issuer deliveryAllocation
+```
 
-## 28. Finalization Revalidates Current Truth
+That helper creates `PrivateCreditLockedHolding` and
+`PrivateCreditAllocation`, returning the latter as `ContractId Allocation`.
+Notice that the business workflow depends on the interface ID, not the concrete
+template ID. The concrete token implementation remains free to manage its own
+holding lifecycle.
 
-`ReadyToSettle` already contains payment and delivery references, but that does
-not make finalization automatic. `FinalizeSettlement` fetches the referenced
-eligibility attestation again and checks the current time against both the
-attestation expiry and settlement deadline.
+The allocation's `allocation_executeTransferImpl` fetches and validates its
+locked holding, archives it, and creates a receiver holding. The standard result
+returns `[ContractId Holding]`, which the app stores in the settlement receipt.
+That is how an abstract interface result becomes concrete delivery evidence.
 
-The choice is controlled by issuer and verifier. In minimal LocalNet those
-roles share the provider party, while the five-party Daml tests keep them
-distinct. The resulting `SettlementReceipt` retains issuer, investor, verifier,
-and custodian as signatories and adds the auditor as an observer.
+## 28. Rollback Is Stronger Than Compensation
 
-This is why the browser can show a completed six-stage timeline without
-becoming the source of truth. It submits the choice, queries the archived
-`ReadyToSettle`, and queries the active receipt. The settled timestamp is
-assigned by Daml with `getTime`, not by the browser clock.
+Inside `CompleteTokenizedDvP`, payment is exercised before delivery. This order
+is deliberate in `testBrokenDeliveryRollsBackPayment`: the mock payment choice
+creates a receipt, then the broken delivery allocation aborts.
+
+Because both child exercises belong to one Daml transaction, the ledger does
+not need a compensating payment. Canton discards the payment allocation archive,
+the mock receipt creation, and every other intermediate effect. Queries after
+the failure show both allocations, the request, and the agreement still active.
+
+On success, the browser queries the reverse evidence: both allocations are
+archived, the investor holding is active, and `TokenizedSettlementReceipt` is
+active with both allocation IDs. Its `settledAt` value comes from `getTime`, not
+the browser clock.

@@ -26,9 +26,10 @@ The memorable demo statement is:
 V1 is a compliance-gated settlement state machine. `paymentRef` and
 `deliveryRef` represent external evidence; they are not token transfers.
 
-V2 becomes DvP when those placeholders are mapped to allocation requests and
-the required transfer legs are executed atomically. The project should not be
-presented as completed DvP before that integration exists.
+V2 is now DvP: both placeholders are replaced by exact Token Standard allocation
+legs, and both execute inside `CompleteTokenizedDvP`. The private-credit token is
+a focused primary-issuance implementation, so that limitation should remain
+clear when presenting the completed local DvP.
 
 ## Alternatives Considered
 
@@ -47,4 +48,5 @@ presented as completed DvP before that integration exists.
 - Active eligibility is checked at final settlement.
 - Direct creation requires the authorities claimed by the resulting contract.
 - Each lifecycle state is single-use and deadline-bound.
-- Documentation distinguishes V1 evidence from future token movement.
+- Documentation distinguishes the retained V1 evidence path from V2 token
+  movement and its production limitations.

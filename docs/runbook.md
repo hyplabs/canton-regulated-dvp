@@ -5,6 +5,8 @@
 - Linux or macOS shell.
 - DPM with Daml SDK `3.5.2`.
 - JDK 21.
+- Docker Desktop or Docker Engine for the Quickstart path. WSL users must enable
+  Docker Desktop integration for this distribution.
 
 Verify:
 
@@ -30,15 +32,16 @@ From the repository root:
 ```
 
 The script builds all four packages in dependency order, then executes both Daml
-Script test packages. Expected result: 13 V1 and 7 V2 scripts report `ok`.
+Script test packages. Expected result: 13 V1 and 8 tokenized DvP scripts report
+`ok`.
 
 Generated DARs:
 
 ```text
 daml/model/.daml/dist/canton-regulated-settlement-model-0.1.0.dar
 daml/tests/.daml/dist/canton-regulated-settlement-tests-0.1.0.dar
-daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.2.0.dar
-daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.2.0.dar
+daml/tokenized-model/.daml/dist/canton-tokenized-settlement-model-0.3.0.dar
+daml/tokenized-tests/.daml/dist/canton-tokenized-settlement-tests-0.3.0.dar
 ```
 
 Only the two `*-model` DARs are intended for upload to a participant. The test
@@ -59,12 +62,14 @@ dpm test -p PaymentCanOnlyBePreparedOnce
 dpm test -p Bypass
 ```
 
-Run the tokenized demo or one V2 failure case from its test package:
+Run the tokenized DvP demo or focused failure cases from its test package:
 
 ```bash
 cd ../tokenized-tests
 dpm test -p setupTokenizedPaymentDemo
-dpm test -p MismatchedAllocation
+dpm test -p MismatchedPayment
+dpm test -p BrokenDelivery
+dpm test -p WrongParty
 ```
 
 ## Quickstart LocalNet
@@ -79,15 +84,16 @@ env JAVA_HOME="$HOME/.local/share/canton-jdk-21/usr/lib/jvm/java-21-openjdk-amd6
   make start
 ```
 
-Then run the real Canton Coin settlement from this repository:
+Then run the real Canton Coin/private-credit DvP from this repository:
 
 ```bash
 ./scripts/localnet-demo.sh
 ```
 
 The runner is repeatable. It uploads only production DARs, uses the current
-tokenized model package ID, funds the LocalNet investor when necessary, and
-prints the final receipt, consumed allocation, and before/after balances.
+tokenized model package ID, funds the LocalNet investor when necessary, creates
+the custodian-controlled private-credit allocation, and prints the final DvP
+receipt, both consumed allocations, investor holding, and before/after balances.
 
 Presentation modes can be combined:
 
@@ -96,10 +102,11 @@ Presentation modes can be combined:
 ./scripts/localnet-demo.sh --show-negative --verbose
 ```
 
-`--interactive` pauses at wallet discovery. `--show-negative` submits and
-verifies a real wrong-party rejection before successful completion. `--verbose`
-adds contract IDs and detailed errors. See `docs/demo-guide.md` for the timed
-walkthrough.
+`--interactive` pauses at wallet discovery after the private-credit leg is
+already reserved. `--show-negative` submits and verifies a real wrong-party
+rejection before successful completion, including continued activeness of both
+allocations. `--verbose` adds contract IDs and detailed errors. See
+`docs/demo-guide.md` for the timed walkthrough.
 
 Useful Quickstart endpoints are:
 
@@ -121,7 +128,9 @@ JDK installation or a complete Temurin archive on a clean machine.
 If a test package cannot find a model DAR, run `dpm build --all` from `daml`;
 the local `multi-package.yaml` establishes the build order.
 
-If `localnet-demo.sh` cannot find `splice-onboarding`, start Quickstart first.
+If `docker` is unavailable inside WSL, enable Docker Desktop integration for the
+distribution and reopen the shell. If `localnet-demo.sh` cannot find
+`splice-onboarding`, start Quickstart first.
 If a wallet request times out, check `docker ps` and wait until both `canton` and
 `splice` are healthy before retrying.
 

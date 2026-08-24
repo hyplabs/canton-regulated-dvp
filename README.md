@@ -1,33 +1,26 @@
 # Canton Regulated Settlement POC
 
-A tested Daml proof of concept for a private, compliance-gated settlement
-workflow with a Canton Token Standard payment path.
+A tested Daml proof of concept for private, compliance-gated delivery-versus-
+payment (DvP) on Canton.
 
-V1 demonstrates contract authorization, privacy, deadlines, active eligibility,
-and single-use state transitions. V2 publishes a standard `AllocationRequest`,
-validates a funded `Allocation`, and executes its transfer before the workflow
-can reach `PaymentPrepared`. The LocalNet runner proves that path with real
-Canton Coin and separate app-provider/app-user participants.
+The demo settles a restricted private-credit note against Canton Coin. An
+eligibility verifier, issuer, investor, and custodian accumulate authority over
+ordinary Daml choices. The custodian reserves the note in a Token Standard
+allocation, the investor wallet reserves Canton Coin in another allocation,
+and the issuer executes both allocations in one transaction. Either cash and
+asset move together, or neither moves.
 
-The V3 browser UI is backed by the real JSON Ledger API. A verifier creates an
-`EligibilityAttestation`, the issuer creates an `AssetOffer`, and the investor
-exercises `AcceptOffer` through its own participant. The UI then shows the
-archived offer and active `CompliancePending` contract returned by Canton. The
-verifier can approve that review to create the jointly signed
-`PurchaseAgreement`. Issuer, verifier, and investor then authorize the
-token-standard payment request, which the standard wallet discovers without
-app-specific parsing. The investor can now allocate the exact Canton Coin
-payment from that wallet request, and the UI confirms the active standard
-`Allocation` from the investor participant. The issuer then executes that
-allocation with registry-provided disclosures in the same transaction that
-archives the request and agreement and creates `PaymentPrepared`. The custodian
-can bind delivery evidence to create `ReadyToSettle`, and issuer/verifier
-finalization creates the auditor-visible `SettlementReceipt`.
+## Version Strategy
 
-This remains **a payment-versus-workflow POC, not full DvP**. Unit tests use a
-small allocation implementation, while the LocalNet path uses the real Canton
-Coin registry. Delivery is still a custodian evidence reference; a true DvP
-claim requires a second tokenized delivery leg.
+- **V1: learning model.** `Settlement.Regulated` teaches parties, signatories,
+  observers, controllers, deadlines, privacy, and staged payment/delivery
+  evidence. It remains useful source material and a fallback demo.
+- **V2: integration model.** `Settlement.TokenizedPayment` and
+  `Settlement.PrivateCreditToken` implement a two-leg Token Standard request,
+  private-credit holdings and allocations, and atomic DvP.
+- **V3: presentation app.** The browser and local backend submit real JSON
+  Ledger API and wallet commands, retain archived contract evidence, and finish
+  on an auditor-visible DvP receipt.
 
 ## Workflow
 
@@ -40,69 +33,70 @@ EligibilityAttestation + AssetOffer
                     v
             PurchaseAgreement
                     |
-       payment proposal/approval/acceptance
+       issuer proposal -> verifier approval
+                    |
+                    v
+          DeliveryApprovalPending
+                    |
+      custodian reserves private-credit units
+                    |
+                    v
+         ApprovedTokenizedPayment
+                    |
+             investor acceptance
                     |
                     v
        TokenizedPaymentRequest (standard interface)
                     |
-          real Canton Coin Allocation
+       +------------+-------------+
+       |                          |
+ Canton Coin Allocation   PrivateCreditAllocation
+       |                          |
+       +------ CompleteTokenizedDvP
                     |
                     v
-             PaymentPrepared
-                    |
-                    v
-              ReadyToSettle
-                    |
-                    v
-            SettlementReceipt
+ TokenizedSettlementReceipt + investor asset Holding
 ```
 
-The verifier explicitly binds its attestation to the agreement. Finalization is
-jointly controlled by the issuer and verifier and re-fetches the attestation, so
-an expired or withdrawn credential cannot produce a receipt. Custodian authority
-is added when delivery is confirmed.
+`CompleteTokenizedDvP` validates both allocations against the same settlement
+reference, exact transfer legs, and deadlines. It then exercises both standard
+`Allocation_ExecuteTransfer` choices and archives the agreement in one Daml
+transaction. A failure in either child transfer rolls back every effect.
 
-The minimal LocalNet run uses two application parties: the app-provider party
-plays issuer, verifier, custodian, and auditor, while the app-user party plays
-the investor. The Daml tests retain five distinct business parties. A production
-topology with independently hosted issuer and verifier parties would also need
-an interactive multi-party submission or another staged approval for their
-jointly controlled completion choice.
+The minimal Quickstart topology uses two application parties: app-provider
+plays issuer, verifier, custodian, and auditor; app-user plays investor. The
+Daml tests retain five distinct business parties. Independently hosted issuer
+and verifier parties would need interactive multi-party submission or another
+staged approval for the jointly controlled completion choice.
 
 ## Guarantees Proven By Tests
 
-- Wrong investors cannot use another party's attestation.
-- Expired attestations cannot accept an offer.
-- Withdrawn or expired attestations block final settlement.
-- The settlement deadline blocks late settlement.
-- A non-issuer cannot finalize settlement.
-- Payment preparation is single-use.
-- Issuer and investor cannot bypass verifier authority by directly creating an
-  agreement.
-- Issuer and investor cannot directly create a receipt without verifier and
-  custodian authority.
+- Wrong investors cannot use another party's eligibility attestation.
+- Expired or withdrawn eligibility blocks settlement.
+- Offer and settlement deadlines are enforced.
+- Direct contract creation cannot bypass verifier or custodian authority.
+- Consuming choices make lifecycle transitions single-use.
 - Offer visibility is limited to issuer and intended investor.
-- Invalid offer values are rejected.
-- A matching token-standard allocation executes before payment preparation.
-- An allocation with the wrong amount cannot advance the workflow.
-- An investor cannot invoke issuer-and-verifier payment completion.
-- Allocation execution and workflow advancement are atomic.
+- Both payment and delivery allocations must match the exact request.
+- Inactive, expired, or wrong-settlement allocations cannot settle.
+- The investor cannot invoke issuer-and-verifier completion.
+- If delivery execution fails after payment execution is attempted, the payment
+  allocation remains active and no transfer receipt is committed.
+- A successful DvP consumes both allocations and creates an investor-owned
+  private-credit holding plus an auditor-visible receipt.
 
 ## Repository Layout
 
-- `daml/model/` - uploadable production templates; no `daml-script` dependency.
-- `daml/tests/` - demo setup and Daml Script test suite.
-- `daml/tokenized-model/` - uploadable Token Standard payment integration.
-- `daml/tokenized-tests/` - mock allocation plus integration scripts.
+- `daml/model/` - uploadable V1 regulated workflow templates.
+- `daml/tests/` - V1 Daml Script tests and setup.
+- `daml/tokenized-model/` - uploadable two-leg DvP and private-credit token model.
+- `daml/tokenized-tests/` - Token Standard mocks and DvP tests.
 - `daml/vendor/` - pinned Token Standard API DARs with checksums.
-- `daml/multi-package.yaml` - four-package Daml workspace.
-- `app/` - local backend adapter, stakeholder UI, and focused tests.
-- `docs/` - architecture, learning guide, strategy, research, and runbook.
-- `scripts/test.sh` - builds every package and executes both test suites.
-- `scripts/localnet-demo.sh` - uploads both production DARs and executes a real
-  Canton Coin settlement against a running Quickstart LocalNet.
-- `scripts/localnet-demo-runtime.sh` - container-side Ledger and wallet API
-  workflow used by the LocalNet runner.
+- `app/` - local backend adapter, stakeholder UI, Node tests, and Playwright tests.
+- `docs/` - architecture, Daml learning guide, demo guide, and runbook.
+- `scripts/test.sh` - builds all four Daml packages and runs both script suites.
+- `scripts/localnet-demo.sh` - uploads production DARs and runs the full DvP flow
+  against Quickstart LocalNet.
 - `.github/workflows/daml.yml` - reproducible JDK, DPM, build, and test CI.
 
 Official source snapshots are kept outside this repository in the sibling
@@ -116,72 +110,51 @@ Prerequisites are DPM with Daml SDK `3.5.2` and JDK 21.
 ./scripts/test.sh
 ```
 
-To execute only the repeatable demo setup:
-
-```bash
-cd daml/tests
-dpm test -p setupRegulatedSettlementDemo
-```
-
-To execute the token-standard-backed demo path:
+Run one repeatable script setup:
 
 ```bash
 cd daml/tokenized-tests
 dpm test -p setupTokenizedPaymentDemo
 ```
 
-With Quickstart LocalNet running, execute the real Canton Coin path:
+With Quickstart LocalNet running:
 
 ```bash
-./scripts/localnet-demo.sh
+./scripts/localnet-demo.sh --show-negative
 ```
 
-To run the stakeholder UI after the model DAR has been uploaded to LocalNet:
+Start the stakeholder app after the DARs have been uploaded:
 
 ```bash
 npm install
 npm run app
 ```
 
-Open `http://127.0.0.1:4173`. Start as Verifier, then follow the available role
-actions through the final Auditor view. The contract inspector retains each
-state for comparison.
+Open `http://127.0.0.1:4173`. Follow the enabled role action from Verifier to
+Issuer, Investor, Custodian, and finally Auditor. The contract inspector keeps
+the cash allocation, asset allocation, resulting holding, and receipt available
+for comparison.
 
-Run the application tests with:
+Run application tests with:
 
 ```bash
 npm run test:app
 npm run test:ui
 ```
 
-Start with `docs/demo-guide.md` for the presentation walkthrough and
-`docs/runbook.md` for environment and troubleshooting details.
-The latest stopped-stack timing and ledger evidence are recorded in
-`docs/demo-rehearsal.md`.
-The exact real-registry handoff is in
-`docs/localnet-integration-milestone.md`.
+Start with `docs/demo-guide.md` for the presentation walkthrough,
+`docs/runbook.md` for setup and troubleshooting, and
+`docs/daml-learning-log.md` to learn the language through this implementation.
 
 ## Current Status
 
-- Both production DARs and both test DARs build successfully.
-- All 13 V1 scripts and 7 V2 scripts pass locally.
-- Production and test packages remain separated.
-- The V2 payment request implements Token Standard `AllocationRequest` V1 and
-  consumes a matching `Allocation` V1 through its standard interface choice.
-- Quickstart LocalNet is running with separate app-provider and app-user
-  participants, and both production DARs are uploaded to each.
-- The wallet discovers the request without app-specific parsing, allocates real
-  Canton Coin, and the registry allocation executes atomically with the
-  regulated workflow transition.
-- The repeatable LocalNet runner verifies consumed request/allocation state,
-  final receipt creation, sender/receiver balance changes, and atomic rejection
-  of an investor's unauthorized settlement attempt.
-- The V3 UI reaches a wallet-discoverable `TokenizedPaymentRequest` through real
-  provider and app-user submissions, then creates and inspects a real Canton
-  Coin allocation and executes it atomically to `PaymentPrepared`; participant
-  and wallet credentials remain in the local backend. Custodian delivery is
-  connected through `ReadyToSettle`, followed by the final receipt.
-- JDK 21 is provisioned locally for this workspace.
-- The role-based V3 browser workflow now reaches all six timeline stages.
-- A tokenized delivery leg and broader LocalNet failure coverage remain
-  upcoming V2 work.
+- All four DARs build successfully.
+- All 13 V1 scripts and 8 tokenized DvP scripts pass locally.
+- The backend suite passes 16 tests and Playwright passes 4 browser tests,
+  including the complete role flow and a 390px mobile viewport.
+- The earlier real Canton Coin payment path was verified on Quickstart LocalNet.
+- The full two-allocation runner and UI are implemented. Their current LocalNet
+  rerun remains pending because Docker Desktop WSL integration is unavailable
+  in this shell; no new real-runtime result is claimed yet.
+- DevNet identity, deployment, and independently hosted multi-party completion
+  remain outside this local proof of concept.

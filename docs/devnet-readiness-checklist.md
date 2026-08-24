@@ -28,11 +28,12 @@ Date: 2026-08-20
 
 ## Token Standard
 
-- [x] Define the payment instrument ID; asset instrument remains open.
+- [x] Define payment and private-credit instrument IDs.
 - [x] Map payment settlement to an allocation request and transfer leg.
 - [x] Validate payment allocations against exact leg and settlement data.
 - [x] Execute payment allocation atomically with workflow advancement.
-- [ ] Execute payment and delivery atomically.
+- [x] Execute payment and delivery atomically in Daml tests and app wiring.
+- [ ] Reverify atomic payment and delivery against Quickstart LocalNet.
 - [x] Add local failure tests for mismatched, inactive, and expired allocations.
 - [ ] Repeat allocation failure coverage against the LocalNet registry.
 
@@ -48,6 +49,8 @@ Date: 2026-08-20
 ## Release Evidence
 
 - [ ] Tag a reviewed demo commit.
-- [x] Record build, test, and LocalNet demo results.
+- [x] Record current build and test results plus historical one-leg LocalNet
+  evidence.
+- [ ] Record a current full-DvP LocalNet rehearsal.
 - [ ] Record the stakeholder walkthrough.
-- [x] Document known V1 and current V2 limitations.
+- [x] Document known V1, current DvP, and runtime-verification limitations.
