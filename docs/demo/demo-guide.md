@@ -113,6 +113,8 @@ At 5 of 6, show both active allocation tabs:
 After execution, Cash and Asset are archived, Holding is active and owned by the
 investor, and Receipt references both allocations and the holding. The wallet
 balance snapshot is supporting evidence; ledger contract state is authoritative.
+The runner waits for both wallet indexes, but warns and continues if aggregate
+balances are still indexing or include unrelated reward and fee changes.
 
 ## Terminal Walkthrough
 
@@ -123,9 +125,10 @@ Run:
 ```
 
 `--interactive` pauses after wallet discovery so you can show the standard
-allocation request. Do not click Accept in the wallet; return to the terminal
-and press Enter so the runner stays repeatable. Add `--verbose` for contract IDs
-and complete rejection details.
+allocation request. If the shared-secret test login appears, enter `app-user`;
+no password is required. Do not click Accept in the wallet; return to the
+terminal and press Enter so the runner stays repeatable. Add `--verbose` for
+contract IDs and complete rejection details.
 
 ### Explain The Rejection
 
