@@ -157,10 +157,10 @@ Start with the [documentation index](docs/README.md), the
 - All 13 V1 scripts and 8 tokenized DvP scripts pass locally.
 - The backend suite passes 16 tests and Playwright passes 4 browser tests,
   including the complete role flow and a 390px mobile viewport.
-- The earlier real Canton Coin payment path was verified on Quickstart LocalNet.
-- The full two-allocation runner and UI are implemented. Their current LocalNet
-  rerun remains pending because Docker Desktop WSL integration is unavailable
-  in this shell; no new real-runtime result is claimed yet.
+- The full two-allocation runner and stakeholder UI are verified on Quickstart
+  LocalNet. The rehearsal confirmed official-wallet request discovery,
+  wrong-party rejection, atomic Canton Coin/private-credit exchange, exact
+  balance movement, the investor holding, and the auditor-visible receipt.
 - DevNet identity, deployment, and independently hosted multi-party completion
   remain outside this local proof of concept.
 
