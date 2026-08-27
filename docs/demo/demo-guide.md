@@ -4,6 +4,10 @@ This is the presenter entry point. The recommended walkthrough takes about five
 minutes and settles a private-credit note against real Canton Coin on Quickstart
 LocalNet.
 
+For a recorded presentation, use the timed
+[video recording script](video-recording-script.md) as the teleprompter and this
+guide as the deeper presenter reference.
+
 ## The Story
 
 A lender issues 1,000 units of a restricted private-credit note to an
