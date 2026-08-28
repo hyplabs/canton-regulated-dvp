@@ -24,7 +24,10 @@ Complete this before screen recording:
 
 - Run `./scripts/test.sh`, `npm run test:app`, and `npm run test:ui`.
 - Confirm `canton`, `splice`, and `splice-onboarding` are healthy.
-- Run `./scripts/localnet-demo.sh --show-negative` once as a smoke test.
+- Run `./scripts/localnet-demo.sh --show-negative` once as a smoke test before
+  the final intentional LocalNet reset.
+- After a final reset, run `./scripts/localnet-demo.sh --prepare-only` to upload
+  and verify the packages without creating settlement contracts.
 - Start the stakeholder app with `npm run app`.
 - Open `http://127.0.0.1:4173` and reset only a completed browser workspace.
 - Open `http://wallet.localhost:2000/allocations` and log in as `app-user` if

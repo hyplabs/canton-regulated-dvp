@@ -75,6 +75,13 @@ Run one noninteractive smoke test before presenting:
 ./scripts/localnet-demo.sh --show-negative
 ```
 
+If you intentionally reset LocalNet after the smoke test, prepare the packages
+again without creating ledger state:
+
+```bash
+./scripts/localnet-demo.sh --prepare-only
+```
+
 Then start the browser app:
 
 ```bash

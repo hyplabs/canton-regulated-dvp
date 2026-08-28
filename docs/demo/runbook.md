@@ -91,6 +91,13 @@ Then run the real Canton Coin/private-credit DvP from this repository:
 ./scripts/localnet-demo.sh
 ```
 
+For a clean browser recording, upload and verify the production packages without
+creating any settlement contracts:
+
+```bash
+./scripts/localnet-demo.sh --prepare-only
+```
+
 The runner is repeatable. It uploads and vets only production DARs, verifies the
 current DvP package on both participants, funds the LocalNet investor when
 necessary, creates the custodian-controlled private-credit allocation, and
