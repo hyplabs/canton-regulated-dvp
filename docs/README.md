@@ -15,8 +15,6 @@ Use these paths depending on what you are trying to do.
 
 ## Run And Present
 
-- [Video recording script](demo/video-recording-script.md) is a timed,
-  word-for-word narration and shot list for the recorded demo.
 - [Local runbook](demo/runbook.md) covers prerequisites, tests, Quickstart, and
   troubleshooting.
 - [Presenter guide](demo/demo-guide.md) provides the browser and terminal

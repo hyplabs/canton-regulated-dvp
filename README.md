@@ -147,7 +147,6 @@ npm run test:ui
 ```
 
 Start with the [documentation index](docs/README.md), the
-[video recording script](docs/demo/video-recording-script.md), the
 [presentation walkthrough](docs/demo/demo-guide.md), the
 [local runbook](docs/demo/runbook.md), or the
 [Daml learning guide](docs/learning/daml-learning-guide.md).

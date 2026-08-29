@@ -4,9 +4,7 @@ This is the presenter entry point. The recommended walkthrough takes about five
 minutes and settles a private-credit note against real Canton Coin on Quickstart
 LocalNet.
 
-For a recorded presentation, use the timed
-[video recording script](video-recording-script.md) as the teleprompter and this
-guide as the deeper presenter reference.
+Use this guide to rehearse and present the browser and terminal walkthroughs.
 
 ## The Story
 
